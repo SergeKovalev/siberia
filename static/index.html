@@ -477,18 +477,23 @@
             });
         });
 
-        // Переключение между формами
+        // Переключение между формами (исправленная версия)
         function switchForm(formType) {
+            const productionForm = document.getElementById('production-form');
+            const timesheetForm = document.getElementById('timesheet-form');
+            const productionBtn = document.getElementById('production-btn');
+            const timesheetBtn = document.getElementById('timesheet-btn');
+            
             if (formType === 'production') {
-                document.getElementById('production-form').classList.add('active');
-                document.getElementById('timesheet-form').classList.remove('active');
-                document.getElementById('production-btn').classList.add('active');
-                document.getElementById('timesheet-btn').classList.remove('active');
-            } else {
-                document.getElementById('production-form').classList.remove('active');
-                document.getElementById('timesheet-form').classList.add('active');
-                document.getElementById('production-btn').classList.remove('active');
-                document.getElementById('timesheet-btn').classList.add('active');
+                productionForm.classList.add('active');
+                timesheetForm.classList.remove('active');
+                productionBtn.classList.add('active');
+                timesheetBtn.classList.remove('active');
+            } else if (formType === 'timesheet') {
+                productionForm.classList.remove('active');
+                timesheetForm.classList.add('active');
+                productionBtn.classList.remove('active');
+                timesheetBtn.classList.add('active');
             }
         }
         
@@ -609,7 +614,7 @@
             
             // Дополнительная валидация часов
             const hoursValue = parseFloat(hours);
-            if (isNaN(hoursValue) {
+            if (isNaN(hoursValue)) {
                 showMessage("Введите корректное количество часов (число)", true);
                 return;
             }
