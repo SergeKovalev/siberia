@@ -212,6 +212,14 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	// Parse input date to extract day
+	inputDate, err := time.Parse("2006-01-02", data.Date)
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("invalid date format, expected YYYY-MM-DD: %v", err)
+	}
+	dayToFind := inputDate.Day()
+
+	// Get names from column B (rows 4-12)
 	respNames, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
 		"Табель!B4:B12",
@@ -230,33 +238,45 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	}
 
 	if targetRow == 0 {
-		return "", 0, 0, fmt.Errorf("full name not found")
+		return "", 0, 0, fmt.Errorf("full name '%s' not found in timesheet", data.FullName)
 	}
 
-	respDates, err := sheetsService.Spreadsheets.Values.Get(
+	// Get dates (day numbers) from row 3 (columns C:AG)
+	respDays, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
 		"Табель!C3:AG3",
 	).Context(ctx).Do()
 
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to get dates: %v", err)
+		return "", 0, 0, fmt.Errorf("failed to get days: %v", err)
 	}
 
 	var targetCol int
-	if len(respDates.Values) > 0 {
-		for i, cell := range respDates.Values[0] {
-			if cellStr, ok := cell.(string); ok && strings.TrimSpace(cellStr) == data.Date {
-				targetCol = 3 + i
+	if len(respDays.Values) > 0 {
+		for i, cell := range respDays.Values[0] {
+			cellStr := fmt.Sprintf("%v", cell) // Convert any type to string
+			cellStr = strings.TrimSpace(cellStr)
+
+			cellDay, err := strconv.Atoi(cellStr)
+			if err == nil && cellDay == dayToFind {
+				targetCol = 3 + i // Column C is index 3
 				break
 			}
 		}
 	}
 
 	if targetCol == 0 {
-		return "", 0, 0, fmt.Errorf("date not found")
+		availableDays := make([]string, 0)
+		if len(respDays.Values) > 0 {
+			for _, cell := range respDays.Values[0] {
+				availableDays = append(availableDays, fmt.Sprintf("%v", cell))
+			}
+		}
+		return "", 0, 0, fmt.Errorf("day %d not found in timesheet. Available days: %v", dayToFind, availableDays)
 	}
 
-	return columnToLetter(targetCol), targetRow, targetCol, nil
+	colLetter := columnToLetter(targetCol)
+	return colLetter, targetRow, targetCol, nil
 }
 
 func columnToLetter(col int) string {
@@ -347,6 +367,12 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if data.Date == "" {
 		data.Date = time.Now().Format("2006-01-02")
+	} else {
+		// Validate date format
+		if _, err := time.Parse("2006-01-02", data.Date); err != nil {
+			http.Error(w, "Invalid date format, expected YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
 	}
 
 	if _, err := strconv.ParseFloat(data.Hours, 64); err != nil {
@@ -356,7 +382,7 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := appendTimesheetData(data); err != nil {
 		log.Printf("Error writing timesheet data: %v", err)
-		http.Error(w, "Failed to process data", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to process data: %v", err), http.StatusInternalServerError)
 		return
 	}
 
