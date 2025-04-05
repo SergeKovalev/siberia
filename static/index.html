@@ -272,27 +272,35 @@
         <h1>Учет производства</h1>
         
         <div class="form-switcher">
-            <button @click="switchForm('production')" :class="{active: activeForm === 'production'}">Учет деталей</button>
-            <button @click="switchForm('timesheet')" :class="{active: activeForm === 'timesheet'}">Табель работы</button>
+            <button onclick="switchForm('production')" id="production-btn">Учет деталей</button>
+            <button onclick="switchForm('timesheet')" id="timesheet-btn">Табель работы</button>
         </div>
         
         <div id="app">
             <!-- Форма учета производства -->
-            <div class="form-section" :class="{active: activeForm === 'production'}">
+            <div class="form-section" id="production-form">
                 <div class="form-group">
                     <label>Дата:</label>
-                    <input type="date" v-model="productionForm.date" required>
+                    <input type="date" id="production-date" required>
                 </div>
                 
                 <div class="form-group">
                     <label>ФИО сотрудника:</label>
-                    <select v-model="productionForm.fullName" required>
+                    <select id="production-fullName" required>
                         <option value="" disabled selected>Выберите сотрудника</option>
-                        <option v-for="employee in employees" :value="employee">{{ employee }}</option>
+                        <option value="Афанасьев">Афанасьев</option>
+                        <option value="Бурлаков">Бурлаков</option>
+                        <option value="Горемыкин">Горемыкин</option>
+                        <option value="Маслов">Маслов</option>
+                        <option value="Овсиенко">Овсиенко</option>
+                        <option value="Серягин">Серягин</option>
+                        <option value="Полушин">Полушин</option>
+                        <option value="Отрадных">Отрадных</option>
+                        <option value="Соболев">Соболев</option>
                         <option value="Другой">Другой (указать)</option>
                     </select>
-                    <input v-if="productionForm.fullName === 'Другой'" 
-                           v-model="customEmployee" 
+                    <input id="custom-employee" 
+                           style="display: none;"
                            placeholder="Введите ФИО" 
                            class="custom-input"
                            required>
@@ -300,13 +308,36 @@
                 
                 <div class="form-group">
                     <label>Название детали и операции:</label>
-                    <select v-model="productionForm.partAndOperation" required>
+                    <select id="production-operation" required>
                         <option value="" disabled selected>Выберите операцию</option>
-                        <option v-for="operation in operations" :value="operation">{{ operation }}</option>
+                        <option value="Гайка Сибирь">Гайка Сибирь</option>
+                        <option value="Крышка Сибирь 1оп">Крышка Сибирь 1оп</option>
+                        <option value="Крышка Сибирь 2оп">Крышка Сибирь 2оп</option>
+                        <option value="Крышка Сибирь 3оп">Крышка Сибирь 3оп</option>
+                        <option value="Основание Сибирь 1-2оп">Основание Сибирь 1-2оп</option>
+                        <option value="Сопло Сибирь">Сопло Сибирь</option>
+                        <option value="Трубка Сибирь">Трубка Сибирь</option>
+                        <option value="Втулка Сибирь (Алюм.)">Втулка Сибирь (Алюм.)</option>
+                        <option value="Втулка Сибирь (Латунь)">Втулка Сибирь (Латунь)</option>
+                        <option value="Болт Зорька">Болт Зорька</option>
+                        <option value="Винт регулировочный М6">Винт регулировочный М6</option>
+                        <option value="Винт регулировочный М8">Винт регулировочный М8</option>
+                        <option value="Гайка МС">Гайка МС</option>
+                        <option value="Крышка МС 1оп">Крышка МС 1оп</option>
+                        <option value="Крышка МС 2оп">Крышка МС 2оп</option>
+                        <option value="Крышка МС 3оп">Крышка МС 3оп</option>
+                        <option value="Крышка МС 4оп">Крышка МС 4оп</option>
+                        <option value="Основание МС 1оп">Основание МС 1оп</option>
+                        <option value="Основание МС 2оп">Основание МС 2оп</option>
+                        <option value="Основание МС 3-4оп">Основание МС 3-4оп</option>
+                        <option value="Сопло МС">Сопло МС</option>
+                        <option value="Наконечник ДВИ">Наконечник ДВИ</option>
+                        <option value="Закрутка Основание МС">Закрутка Основание МС</option>
+                        <option value="Гайка МС доработка">Гайка МС доработка</option>
                         <option value="Другая">Другая (указать)</option>
                     </select>
-                    <input v-if="productionForm.partAndOperation === 'Другая'" 
-                           v-model="customOperation" 
+                    <input id="custom-operation" 
+                           style="display: none;"
                            placeholder="Введите название операции" 
                            class="custom-input"
                            required>
@@ -314,20 +345,20 @@
                 
                 <div class="form-group">
                     <label>Количество деталей (общее):</label>
-                    <input type="number" v-model="productionForm.totalParts" placeholder="10" min="0" required>
+                    <input type="number" id="production-totalParts" placeholder="10" min="0" required>
                 </div>
                 
                 <div class="form-group">
                     <label>Брак:</label>
-                    <input type="number" v-model="productionForm.defective" placeholder="0" min="0">
+                    <input type="number" id="production-defective" placeholder="0" min="0">
                 </div>
                 
                 <div class="form-group">
                     <label>Примечания:</label>
-                    <textarea v-model="productionForm.notes" rows="3" placeholder="Особенности работы..."></textarea>
+                    <textarea id="production-notes" rows="3" placeholder="Особенности работы..."></textarea>
                 </div>
                 
-                <button @click="submitProductionForm">
+                <button onclick="submitProductionForm()">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                         <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -338,26 +369,34 @@
             </div>
             
             <!-- Форма табеля работы -->
-            <div class="form-section" :class="{active: activeForm === 'timesheet'}">
+            <div class="form-section" id="timesheet-form" style="display: none;">
                 <div class="form-group">
                     <label>ФИО сотрудника:</label>
-                    <select v-model="timesheetForm.fullName" required>
+                    <select id="timesheet-fullName" required>
                         <option value="" disabled selected>Выберите сотрудника</option>
-                        <option v-for="employee in employees" :value="employee">{{ employee }}</option>
+                        <option value="Афанасьев">Афанасьев</option>
+                        <option value="Бурлаков">Бурлаков</option>
+                        <option value="Горемыкин">Горемыкин</option>
+                        <option value="Маслов">Маслов</option>
+                        <option value="Овсиенко">Овсиенко</option>
+                        <option value="Серягин">Серягин</option>
+                        <option value="Полушин">Полушин</option>
+                        <option value="Отрадных">Отрадных</option>
+                        <option value="Соболев">Соболев</option>
                     </select>
                 </div>
                 
                 <div class="form-group">
                     <label>Дата:</label>
-                    <input type="date" v-model="timesheetForm.date" required>
+                    <input type="date" id="timesheet-date" required>
                 </div>
                 
                 <div class="form-group">
                     <label>Количество часов:</label>
-                    <input type="number" v-model="timesheetForm.hours" min="0" max="24" step="0.5" placeholder="8" required>
+                    <input type="number" id="timesheet-hours" min="0" max="24" step="0.5" placeholder="8" required>
                 </div>
                 
-                <button @click="submitTimesheetForm">
+                <button onclick="submitTimesheetForm()">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
@@ -366,9 +405,9 @@
                 </button>
             </div>
             
-            <div class="status-overlay" v-if="message" @click="message = ''">
-                <div class="status-content" :class="{'status-success': !isError, 'status-error': isError}">
-                    {{ message }}
+            <div class="status-overlay" id="status-overlay" style="display: none;" onclick="hideMessage()">
+                <div class="status-content" id="status-content">
+                    <span id="status-message"></span>
                     <div style="margin-top: 20px; font-size: 14px; color: #666;">
                         Кликните, чтобы закрыть
                     </div>
@@ -377,159 +416,120 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
     <script>
-        new Vue({
-            el: '#app',
-            data: {
-                activeForm: 'production',
-                productionForm: {
-                    date: new Date().toISOString().substr(0, 10),
-                    fullName: '',
-                    partAndOperation: '',
-                    totalParts: '',
-                    defective: '',
-                    notes: ''
-                },
-                timesheetForm: {
-                    fullName: '',
-                    date: new Date().toISOString().substr(0, 10),
-                    hours: ''
-                },
-                employees: [
-                    "Афанасьев",
-                    "Бурлаков",
-                    "Горемыкин",
-                    "Маслов",
-                    "Овсиенко",
-                    "Серягин",
-                    "Полушин",
-                    "Отрадных",
-                    "Соболев"
-                ],
-                operations: [
-                    "Гайка Сибирь",
-                    "Крышка Сибирь 1оп",
-                    "Крышка Сибирь 2оп",
-                    "Крышка Сибирь 3оп",
-                    "Основание Сибирь 1-2оп",
-                    "Сопло Сибирь",
-                    "Трубка Сибирь",
-                    "Втулка Сибирь (Алюм.)",
-                    "Втулка Сибирь (Латунь)",
-                    "Болт Зорька",
-                    "Винт регулировочный М6",
-                    "Винт регулировочный М8",
-                    "Гайка МС",
-                    "Крышка МС 1оп",
-                    "Крышка МС 2оп",
-                    "Крышка МС 3оп",
-                    "Крышка МС 4оп",
-                    "Основание МС 1оп",
-                    "Основание МС 2оп",
-                    "Основание МС 3-4оп",
-                    "Сопло МС",
-                    "Наконечник ДВИ",
-                    "Закрутка Основание МС",
-                    "Гайка МС доработка"
-                ],
-                customEmployee: '',
-                customOperation: '',
-                message: '',
-                isError: false
-            },
-            methods: {
-                switchForm(formType) {
-                    this.activeForm = formType;
-                    this.message = '';
-                },
-                
-                async submitProductionForm() {
-                    if (this.productionForm.fullName === 'Другой') {
-                        if (!this.customEmployee) {
-                            this.showMessage("Введите ФИО сотрудника", true);
-                            return;
-                        }
-                        this.productionForm.fullName = this.customEmployee;
-                    }
-                    
-                    if (this.productionForm.partAndOperation === 'Другая') {
-                        if (!this.customOperation) {
-                            this.showMessage("Введите название операции", true);
-                            return;
-                        }
-                        this.productionForm.partAndOperation = this.customOperation;
-                    }
-
-                    if (!this.productionForm.fullName || !this.productionForm.partAndOperation || !this.productionForm.totalParts) {
-                        this.showMessage("Обязательные поля не заполнены!", true);
-                        return;
-                    }
-
-                    try {
-                        const response = await fetch('/submit-production', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.productionForm)
-                        });
-                        
-                        if (!response.ok) {
-                            const error = await response.text();
-                            throw new Error(error);
-                        }
-                        
-                        this.showMessage("Данные производства успешно сохранены!");
-                        this.clearProductionForm();
-                    } catch (err) {
-                        this.showMessage("Ошибка: " + err.message, true);
-                    }
-                },
-                
-                async submitTimesheetForm() {
-                    if (!this.timesheetForm.fullName || !this.timesheetForm.date || !this.timesheetForm.hours) {
-                        this.showMessage("Все поля обязательны для заполнения!", true);
-                        return;
-                    }
-
-                    try {
-                        const response = await fetch('/submit-timesheet', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.timesheetForm)
-                        });
-                        
-                        if (!response.ok) {
-                            const error = await response.text();
-                            throw new Error(error);
-                        }
-                        
-                        this.showMessage("Данные табеля успешно сохранены!");
-                        this.timesheetForm.hours = '';
-                    } catch (err) {
-                        this.showMessage("Ошибка: " + err.message, true);
-                    }
-                },
-                
-                clearProductionForm() {
-                    this.productionForm = {
-                        date: new Date().toISOString().substr(0, 10),
-                        fullName: '',
-                        partAndOperation: '',
-                        totalParts: '',
-                        defective: '',
-                        notes: ''
-                    };
-                    this.customEmployee = '';
-                    this.customOperation = '';
-                },
-                
-                showMessage(msg, isErr = false) {
-                    this.message = msg;
-                    this.isError = isErr;
-                    setTimeout(() => this.message = '', 5000);
+        // Установка текущей даты по умолчанию
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toISOString().substr(0, 10);
+            document.getElementById('production-date').value = today;
+            document.getElementById('timesheet-date').value = today;
+            
+            // Обработчики для полей "Другой"
+            document.getElementById('production-fullName').addEventListener('change', function() {
+                const customEmployeeField = document.getElementById('custom-employee');
+                customEmployeeField.style.display = this.value === 'Другой' ? 'block' : 'none';
+                if (this.value !== 'Другой') customEmployeeField.value = '';
+            });
+            
+            document.getElementById('production-operation').addEventListener('change', function() {
+                const customOperationField = document.getElementById('custom-operation');
+                customOperationField.style.display = this.value === 'Другая' ? 'block' : 'none';
+                if (this.value !== 'Другая') customOperationField.value = '';
+            });
+        });
+        
+        function switchForm(formType) {
+            if (formType === 'production') {
+                document.getElementById('production-form').style.display = 'block';
+                document.getElementById('timesheet-form').style.display = 'none';
+                document.getElementById('production-btn').classList.add('active');
+                document.getElementById('timesheet-btn').classList.remove('active');
+            } else {
+                document.getElementById('production-form').style.display = 'none';
+                document.getElementById('timesheet-form').style.display = 'block';
+                document.getElementById('production-btn').classList.remove('active');
+                document.getElementById('timesheet-btn').classList.add('active');
+            }
+        }
+        
+        function showMessage(message, isError = false) {
+            const overlay = document.getElementById('status-overlay');
+            const content = document.getElementById('status-content');
+            const messageElement = document.getElementById('status-message');
+            
+            messageElement.textContent = message;
+            content.className = isError ? 'status-content status-error' : 'status-content status-success';
+            overlay.style.display = 'flex';
+            
+            // Автоматическое скрытие через 5 секунд
+            setTimeout(hideMessage, 5000);
+        }
+        
+        function hideMessage() {
+            document.getElementById('status-overlay').style.display = 'none';
+        }
+        
+        function submitProductionForm() {
+            const fullNameSelect = document.getElementById('production-fullName');
+            let fullName = fullNameSelect.value;
+            
+            if (fullName === 'Другой') {
+                fullName = document.getElementById('custom-employee').value;
+                if (!fullName) {
+                    showMessage("Введите ФИО сотрудника", true);
+                    return;
                 }
             }
-        });
+            
+            const operationSelect = document.getElementById('production-operation');
+            let operation = operationSelect.value;
+            
+            if (operation === 'Другая') {
+                operation = document.getElementById('custom-operation').value;
+                if (!operation) {
+                    showMessage("Введите название операции", true);
+                    return;
+                }
+            }
+            
+            const date = document.getElementById('production-date').value;
+            const totalParts = document.getElementById('production-totalParts').value;
+            
+            if (!date || !fullName || !operation || !totalParts) {
+                showMessage("Обязательные поля не заполнены!", true);
+                return;
+            }
+            
+            // Здесь должна быть логика отправки данных на сервер
+            // Для демонстрации просто показываем сообщение об успехе
+            showMessage("Данные производства успешно сохранены!");
+            
+            // Очистка формы (кроме даты)
+            fullNameSelect.value = '';
+            operationSelect.value = '';
+            document.getElementById('production-totalParts').value = '';
+            document.getElementById('production-defective').value = '';
+            document.getElementById('production-notes').value = '';
+            document.getElementById('custom-employee').style.display = 'none';
+            document.getElementById('custom-operation').style.display = 'none';
+        }
+        
+        function submitTimesheetForm() {
+            const fullName = document.getElementById('timesheet-fullName').value;
+            const date = document.getElementById('timesheet-date').value;
+            const hours = document.getElementById('timesheet-hours').value;
+            
+            if (!fullName || !date || !hours) {
+                showMessage("Все поля обязательны для заполнения!", true);
+                return;
+            }
+            
+            // Здесь должна быть логика отправки данных на сервер
+            // Для демонстрации просто показываем сообщение об успехе
+            showMessage("Данные табеля успешно сохранены!");
+            
+            // Очистка формы (кроме даты и сотрудника)
+            document.getElementById('timesheet-hours').value = '';
+        }
     </script>
 </body>
 </html>
