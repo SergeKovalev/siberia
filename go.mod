@@ -1,6 +1,6 @@
 module sheets-service
 
-go 1.24.1
+go 1.24.0
 
 require (
 	golang.org/x/oauth2 v0.28.0
