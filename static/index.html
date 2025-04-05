@@ -72,10 +72,12 @@
         
         .form-section.active {
             display: block;
+            animation: fadeIn 0.5s ease;
         }
         
         .form-group {
             margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
         }
         
         label {
@@ -178,11 +180,6 @@
             background: #ffebee;
             color: #c62828;
             border: 1px solid #ef9a9a;
-        }
-        
-        .custom-input {
-            margin-top: 10px;
-            animation: fadeIn 0.3s ease;
         }
         
         @keyframes fadeIn {
@@ -448,7 +445,6 @@
                 },
                 
                 async submitProductionForm() {
-                    // Подставляем кастомные значения если выбрано "Другой"
                     if (this.productionForm.fullName === 'Другой') {
                         if (!this.customEmployee) {
                             this.showMessage("Введите ФИО сотрудника", true);
@@ -465,7 +461,6 @@
                         this.productionForm.partAndOperation = this.customOperation;
                     }
 
-                    // Валидация
                     if (!this.productionForm.fullName || !this.productionForm.partAndOperation || !this.productionForm.totalParts) {
                         this.showMessage("Обязательные поля не заполнены!", true);
                         return;

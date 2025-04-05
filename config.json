@@ -1,5 +1,6 @@
 {
     "port": "8080",
     "spreadsheetID": "12_JvM49VPqiYQjWAALXZKs9Hd1BuYtFLE6yASAGC6jk",
-    "sheetName": "Выпуск"
+    "ProductionSheet": "Выпуск",
+    "TimesheetSheet":  "Табель"
   }
