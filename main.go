@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -46,17 +45,19 @@ var (
 )
 
 func main() {
-	log.Println("Проверка инициализации...")
-	log.Printf("SpreadsheetID: %s", config.SpreadsheetID)
-
 	log.SetOutput(os.Stdout)
 	log.Println("Starting application...")
 
 	loadConfig()
-	log.Printf("Configuration loaded: %+v", config)
+	log.Printf("SpreadsheetID: %s", config.SpreadsheetID) // Добавлено для проверки
 
 	if err := initSheetsService(); err != nil {
 		log.Fatalf("Failed to initialize Google Sheets: %v", err)
+	}
+
+	// Проверка доступа
+	if err := verifyAccess(); err != nil {
+		log.Fatalf("Access verification failed: %v", err)
 	}
 
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
@@ -75,6 +76,18 @@ func main() {
 
 	log.Printf("Server running on port %s", config.Port)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func verifyAccess() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Do()
+	if err != nil {
+		return fmt.Errorf("failed to access spreadsheet: %v", err)
+	}
+	log.Println("Spreadsheet access verified successfully")
+	return nil
 }
 
 func loadConfig() {
@@ -105,24 +118,19 @@ func initSheetsService() error {
 
 	creds, err := loadCredentials()
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
+		return fmt.Errorf("failed to load credentials: %v", err)
 	}
-
-	log.Println("Учетные данные получены, создаем конфиг JWT...")
 
 	conf, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
 	if err != nil {
-		return fmt.Errorf("ошибка создания JWT конфига: %v", err)
+		return fmt.Errorf("invalid credentials: %v", err)
 	}
-
-	log.Println("JWT конфиг создан, инициализируем сервис...")
 
 	sheetsService, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
 	if err != nil {
-		return fmt.Errorf("ошибка создания сервиса Sheets: %v", err)
+		return fmt.Errorf("failed to create sheets service: %v", err)
 	}
 
-	log.Println("Сервис Google Sheets успешно инициализирован!")
 	return nil
 }
 
@@ -132,10 +140,12 @@ func loadCredentials() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 credentials: %v", err)
 		}
+		log.Println("Using credentials from GOOGLE_CREDENTIALS_BASE64")
 		return data, nil
 	}
 
 	if data, err := os.ReadFile("credentials.json"); err == nil {
+		log.Println("Using credentials from credentials.json")
 		return data, nil
 	}
 
@@ -158,7 +168,7 @@ func findLastNonEmptyRow(sheetName string) (int, error) {
 	lastNonEmpty := 0
 	for i, row := range resp.Values {
 		if len(row) > 0 && strings.TrimSpace(row[0].(string)) != "" {
-			lastNonEmpty = i + 1 // +1 потому что строки нумеруются с 1
+			lastNonEmpty = i + 1
 		}
 	}
 
@@ -166,40 +176,39 @@ func findLastNonEmptyRow(sheetName string) (int, error) {
 }
 
 func appendProductionData(data ProductionData) error {
-	log.Println("Поиск последней заполненной строки...")
 	lastRow, err := findLastNonEmptyRow(config.ProductionSheet)
 	if err != nil {
-		log.Printf("Ошибка поиска строки: %v", err)
-		return fmt.Errorf("ошибка поиска последней строки: %v", err)
+		return fmt.Errorf("failed to find last row: %v", err)
 	}
-	log.Printf("Последняя заполненная строка: %d", lastRow)
 
 	targetRow := lastRow + 1
-	log.Printf("Запись в строку: %d", targetRow)
-
 	values := [][]interface{}{
-		{data.Date, data.FullName, data.PartAndOperation, data.TotalParts, data.Defective, data.GoodParts, data.Notes},
+		{
+			data.Date,
+			data.FullName,
+			data.PartAndOperation,
+			data.TotalParts,
+			data.Defective,
+			data.GoodParts,
+			data.Notes,
+		},
 	}
 
-	rangeData := fmt.Sprintf("%s!A%d:G%d", config.ProductionSheet, targetRow, targetRow)
-	log.Printf("Диапазон для записи: %s", rangeData)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	log.Println("Отправка запроса к Google Sheets API...")
+	rangeData := fmt.Sprintf("%s!A%d:G%d", config.ProductionSheet, targetRow, targetRow)
 	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
 		rangeData,
 		&sheets.ValueRange{Values: values},
-	).ValueInputOption("RAW").Context(ctx).Do()
+	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 
 	if err != nil {
-		log.Printf("Полная ошибка от API: %+v", err)
-		return fmt.Errorf("ошибка записи: %v", err)
+		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	log.Println("Данные успешно записаны!")
+	log.Printf("Production data written to row %d", targetRow)
 	return nil
 }
 
@@ -207,95 +216,89 @@ func findTimesheetCell(data TimesheetData) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Получаем все данные с листа
-	resp, err := sheetsService.Spreadsheets.Values.Get(
+	// Получаем ФИО (столбец B, строки 4-12)
+	respNames, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
-		fmt.Sprintf("%s!A:ZZ", config.TimesheetSheet),
+		"Табель!B4:B12",
 	).Context(ctx).Do()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to get sheet data: %v", err)
+		return "", fmt.Errorf("failed to get names: %v", err)
 	}
 
-	if len(resp.Values) == 0 {
-		return "", fmt.Errorf("timesheet is empty")
-	}
-
-	// Находим строку с ФИО
+	// Находим строку для ФИО
 	var targetRow int
-	for i, row := range resp.Values {
+	for i, row := range respNames.Values {
 		if len(row) > 0 && strings.TrimSpace(row[0].(string)) == data.FullName {
-			targetRow = i + 1 // +1 потому что строки нумеруются с 1
+			targetRow = 4 + i // Строки начинаются с 4
 			break
 		}
 	}
 
 	if targetRow == 0 {
-		return "", fmt.Errorf("full name not found in timesheet")
+		return "", fmt.Errorf("full name not found")
 	}
 
-	// Находим столбец с датой (первая строка - заголовки)
-	if len(resp.Values) < 1 {
-		return "", fmt.Errorf("no header row in timesheet")
+	// Получаем даты (строка 3, столбцы C-AG)
+	respDates, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		"Табель!C3:AG3",
+	).Context(ctx).Do()
+
+	if err != nil {
+		return "", fmt.Errorf("failed to get dates: %v", err)
 	}
 
-	headerRow := resp.Values[0]
-	var targetCol int
-	for i, cell := range headerRow {
-		if cellStr, ok := cell.(string); ok && strings.TrimSpace(cellStr) == data.Date {
-			targetCol = i + 1 // +1 потому что столбцы нумеруются с 1
-			break
+	// Находим столбец для даты
+	var targetCol string
+	if len(respDates.Values) > 0 {
+		for i, cell := range respDates.Values[0] {
+			if cellStr, ok := cell.(string); ok && strings.TrimSpace(cellStr) == data.Date {
+				targetCol = columnToLetter(3 + i) // C=3, D=4, etc.
+				break
+			}
 		}
 	}
 
-	if targetCol == 0 {
-		return "", fmt.Errorf("date not found in timesheet header")
+	if targetCol == "" {
+		return "", fmt.Errorf("date not found")
 	}
 
-	// Конвертируем номер столбца в буквенное обозначение (A, B, ..., AA, AB, ...)
-	colLetter := columnToLetter(targetCol)
-	return fmt.Sprintf("%s!%s%d", config.TimesheetSheet, colLetter, targetRow), nil
+	return fmt.Sprintf("Табель!%s%d", targetCol, targetRow), nil
 }
 
 func columnToLetter(col int) string {
 	letter := ""
 	for col > 0 {
 		col--
-		letter = string(rune('A'+col%26)) + letter
+		letter = string(rune('A'+(col%26))) + letter
 		col = col / 26
 	}
 	return letter
 }
 
 func appendTimesheetData(data TimesheetData) error {
-	log.Println("Поиск ячейки для табеля...")
 	cell, err := findTimesheetCell(data)
 	if err != nil {
-		log.Printf("Ошибка поиска ячейки: %v", err)
-		return fmt.Errorf("ошибка поиска ячейки: %v", err)
-	}
-	log.Printf("Найдена ячейка: %s", cell)
-
-	if _, err := strconv.ParseFloat(data.Hours, 64); err != nil {
-		return fmt.Errorf("часы должны быть числом: %v", err)
+		return fmt.Errorf("failed to find cell: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	log.Println("Отправка запроса на обновление табеля...")
 	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
 		cell,
-		&sheets.ValueRange{Values: [][]interface{}{{data.Hours}}},
+		&sheets.ValueRange{
+			Values: [][]interface{}{{data.Hours}},
+		},
 	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 
 	if err != nil {
-		log.Printf("Полная ошибка от API: %+v", err)
-		return fmt.Errorf("ошибка обновления табеля: %v", err)
+		return fmt.Errorf("failed to update cell: %v", err)
 	}
 
-	log.Println("Данные табеля успешно обновлены!")
+	log.Printf("Timesheet data written to %s", cell)
 	return nil
 }
 
