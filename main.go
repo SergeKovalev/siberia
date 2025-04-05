@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,11 +134,10 @@ func loadCredentials() ([]byte, error) {
 	return nil, fmt.Errorf("no credentials provided")
 }
 
-func findFirstEmptyRow(sheetName string) (int, error) {
+func findLastNonEmptyRow(sheetName string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Получаем все данные с листа
 	resp, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
 		fmt.Sprintf("%s!A:A", sheetName),
@@ -147,23 +147,24 @@ func findFirstEmptyRow(sheetName string) (int, error) {
 		return 0, fmt.Errorf("failed to get sheet data: %v", err)
 	}
 
-	// Ищем первую пустую строку
+	lastNonEmpty := 0
 	for i, row := range resp.Values {
-		if len(row) == 0 || strings.TrimSpace(row[0].(string)) == "" {
-			return i + 1, nil // +1 потому что строки нумеруются с 1
+		if len(row) > 0 && strings.TrimSpace(row[0].(string)) != "" {
+			lastNonEmpty = i + 1 // +1 потому что строки нумеруются с 1
 		}
 	}
 
-	// Если все строки заполнены, возвращаем следующую после последней
-	return len(resp.Values) + 1, nil
+	return lastNonEmpty, nil
 }
 
 func appendProductionData(data ProductionData) error {
-	// Находим первую пустую строку
-	row, err := findFirstEmptyRow(config.ProductionSheet)
+	lastRow, err := findLastNonEmptyRow(config.ProductionSheet)
 	if err != nil {
-		return fmt.Errorf("failed to find empty row: %v", err)
+		return fmt.Errorf("failed to find last row: %v", err)
 	}
+
+	// Следующая строка после последней заполненной
+	targetRow := lastRow + 1
 
 	values := [][]interface{}{
 		{
@@ -181,8 +182,7 @@ func appendProductionData(data ProductionData) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Формируем диапазон для записи (например, "Выпуск!A5:I5")
-	rangeData := fmt.Sprintf("%s!A%d:I%d", config.ProductionSheet, row, row)
+	rangeData := fmt.Sprintf("%s!A%d:H%d", config.ProductionSheet, targetRow, targetRow)
 
 	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
@@ -196,36 +196,103 @@ func appendProductionData(data ProductionData) error {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	log.Printf("Data written to row %d", row)
+	log.Printf("Production data written to row %d", targetRow)
 	return nil
 }
 
-func appendTimesheetData(data TimesheetData) error {
-	values := [][]interface{}{
-		{
-			data.Date,
-			data.FullName,
-			data.Hours,
-			time.Now().Format("2006-01-02 15:04:05"),
-		},
+func findTimesheetCell(data TimesheetData) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Получаем все данные с листа
+	resp, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		fmt.Sprintf("%s!A:ZZ", config.TimesheetSheet),
+	).Context(ctx).Do()
+
+	if err != nil {
+		return "", fmt.Errorf("failed to get sheet data: %v", err)
 	}
+
+	if len(resp.Values) == 0 {
+		return "", fmt.Errorf("timesheet is empty")
+	}
+
+	// Находим строку с ФИО
+	var targetRow int
+	for i, row := range resp.Values {
+		if len(row) > 0 && strings.TrimSpace(row[0].(string)) == data.FullName {
+			targetRow = i + 1 // +1 потому что строки нумеруются с 1
+			break
+		}
+	}
+
+	if targetRow == 0 {
+		return "", fmt.Errorf("full name not found in timesheet")
+	}
+
+	// Находим столбец с датой (первая строка - заголовки)
+	if len(resp.Values) < 1 {
+		return "", fmt.Errorf("no header row in timesheet")
+	}
+
+	headerRow := resp.Values[0]
+	var targetCol int
+	for i, cell := range headerRow {
+		if cellStr, ok := cell.(string); ok && strings.TrimSpace(cellStr) == data.Date {
+			targetCol = i + 1 // +1 потому что столбцы нумеруются с 1
+			break
+		}
+	}
+
+	if targetCol == 0 {
+		return "", fmt.Errorf("date not found in timesheet header")
+	}
+
+	// Конвертируем номер столбца в буквенное обозначение (A, B, ..., AA, AB, ...)
+	colLetter := columnToLetter(targetCol)
+	return fmt.Sprintf("%s!%s%d", config.TimesheetSheet, colLetter, targetRow), nil
+}
+
+func columnToLetter(col int) string {
+	letter := ""
+	for col > 0 {
+		col--
+		letter = string(rune('A'+col%26)) + letter
+		col = col / 26
+	}
+	return letter
+}
+
+func appendTimesheetData(data TimesheetData) error {
+	cell, err := findTimesheetCell(data)
+	if err != nil {
+		return fmt.Errorf("failed to find target cell: %v", err)
+	}
+
+	// Проверяем, что значение можно преобразовать в число
+	if _, err := strconv.ParseFloat(data.Hours, 64); err != nil {
+		return fmt.Errorf("hours must be a number: %v", err)
+	}
+
+	values := [][]interface{}{{data.Hours}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err := sheetsService.Spreadsheets.Values.Append(
+	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
-		config.TimesheetSheet,
+		cell,
 		&sheets.ValueRange{
-			Values:         values,
-			MajorDimension: "ROWS",
+			Values: values,
 		},
-	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 
 	if err != nil {
-		return fmt.Errorf("failed to append timesheet data: %v", err)
+		return fmt.Errorf("failed to update timesheet: %v", err)
 	}
 
+	log.Printf("Timesheet data written to cell %s", cell)
 	return nil
 }
 
