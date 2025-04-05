@@ -109,21 +109,37 @@
             transform: translateY(0);
         }
         
-        .status-message {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 4px;
-            text-align: center;
-            font-weight: 500;
+        .status-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
         }
         
-        .success {
+        .status-content {
+            max-width: 80%;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+            font-size: 18px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+        
+        .status-success {
             background: #e6f7ee;
             color: #2e7d32;
             border: 1px solid #a5d6a7;
         }
         
-        .error {
+        .status-error {
             background: #ffebee;
             color: #c62828;
             border: 1px solid #ef9a9a;
@@ -178,6 +194,12 @@
             .logo img {
                 height: 50px;
             }
+            
+            .status-content {
+                max-width: 90%;
+                padding: 20px;
+                font-size: 16px;
+            }
         }
 
         @media (max-width: 480px) {
@@ -199,7 +221,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Остальной HTML код остается без изменений -->
     <div class="form-container">
         <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" height="60">
@@ -263,8 +284,13 @@
                 Сохранить в таблицу
             </button>
             
-            <div class="status-message" :class="{success: !isError, error: isError}" v-if="message">
-                {{ message }}
+            <div class="status-overlay" v-if="message" @click="message = ''">
+                <div class="status-content" :class="{'status-success': !isError, 'status-error': isError}">
+                    {{ message }}
+                    <div style="margin-top: 20px; font-size: 14px; color: #666;">
+                        Кликните, чтобы закрыть
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -326,7 +352,6 @@
             },
             methods: {
                 async submit() {
-                    // Подставляем кастомные значения если выбрано "Другой"
                     if (this.form.fullName === 'Другой' && this.customEmployee) {
                         this.form.fullName = this.customEmployee;
                     }
@@ -335,7 +360,6 @@
                         this.form.partAndOperation = this.customOperation;
                     }
 
-                    // Валидация
                     if (!this.form.fullName || !this.form.partAndOperation) {
                         this.showMessage("ФИО и название операции обязательны!", true);
                         return;
