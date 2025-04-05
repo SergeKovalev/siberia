@@ -218,17 +218,21 @@ func appendProductionData(data ProductionData) error {
 		},
 	}
 
-	// Определяем диапазон для записи
-	rangeData := fmt.Sprintf("%s!A1", config.ProductionSheet)
+	// Определяем диапазон для записи (используем только имя листа для Append)
+	rangeData := config.ProductionSheet
 
 	// Используем Append для добавления новой строки
 	_, err = srv.Spreadsheets.Values.Append(
 		config.SpreadsheetID,
 		rangeData,
 		&sheets.ValueRange{Values: values},
-	).ValueInputOption("USER_ENTERED").Do()
+	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
 
-	return err
+	if err != nil {
+		return fmt.Errorf("ошибка при добавлении данных: %v", err)
+	}
+
+	return nil
 }
 
 func appendTimesheetData(data TimesheetData) error {
@@ -260,17 +264,21 @@ func appendTimesheetData(data TimesheetData) error {
 		},
 	}
 
-	// Определяем диапазон для записи
-	rangeData := fmt.Sprintf("%s!A1", config.TimesheetSheet)
+	// Определяем диапазон для записи (используем только имя листа для Append)
+	rangeData := config.TimesheetSheet
 
 	// Используем Append для добавления новой строки
 	_, err = srv.Spreadsheets.Values.Append(
 		config.SpreadsheetID,
 		rangeData,
 		&sheets.ValueRange{Values: values},
-	).ValueInputOption("USER_ENTERED").Do()
+	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
 
-	return err
+	if err != nil {
+		return fmt.Errorf("ошибка при добавлении данных: %v", err)
+	}
+
+	return nil
 }
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
