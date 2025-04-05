@@ -1,6 +1,5 @@
 {
     "port": "8080",
-    "credentialsFile": "credentials.json",
     "spreadsheetID": "12_JvM49VPqiYQjWAALXZKs9Hd1BuYtFLE6yASAGC6jk",
     "sheetName": "Выпуск"
   }

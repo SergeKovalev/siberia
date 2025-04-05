@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -75,13 +76,20 @@ func main() {
 	}
 }
 
+func loadCredentials() ([]byte, error) {
+	base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64")
+	if base64Data == "" {
+		return nil, fmt.Errorf("переменная GOOGLE_CREDENTIALS_BASE64 не задана")
+	}
+	return base64.StdEncoding.DecodeString(base64Data)
+}
+
 func loadConfig() {
 	// Значения по умолчанию
 	config = Config{
-		Port:            "8080",
-		CredentialsFile: "credentials.json",
-		SpreadsheetID:   "",
-		SheetName:       "Sheet1",
+		Port:          "8080",
+		SpreadsheetID: "",
+		SheetName:     "Sheet1",
 	}
 
 	// Попытка загрузить конфиг из файла
@@ -144,9 +152,9 @@ func appendToGoogleSheet(userData UserData) error {
 	defer cancel()
 
 	// Чтение учетных данных
-	credentials, err := os.ReadFile(config.CredentialsFile)
+	credentials, err := loadCredentials()
 	if err != nil {
-		return fmt.Errorf("не удалось прочитать файл учетных данных: %v", err)
+		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
 	}
 
 	// Создание клиента Google Sheets
