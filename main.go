@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2/google"
@@ -15,7 +16,6 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-// Config представляет конфигурацию приложения
 type Config struct {
 	Port            string `json:"port"`
 	SpreadsheetID   string `json:"spreadsheetID"`
@@ -23,7 +23,6 @@ type Config struct {
 	TimesheetSheet  string `json:"timesheetSheet"`
 }
 
-// ProductionData представляет данные формы учета производства
 type ProductionData struct {
 	Date             string `json:"date"`
 	FullName         string `json:"fullName"`
@@ -34,7 +33,6 @@ type ProductionData struct {
 	Notes            string `json:"notes"`
 }
 
-// TimesheetData представляет данные формы табеля работы
 type TimesheetData struct {
 	Date     string `json:"date"`
 	FullName string `json:"fullName"`
@@ -47,34 +45,28 @@ var (
 )
 
 func main() {
-	// Инициализация логгера
 	log.SetOutput(os.Stdout)
-	log.Println("Запуск приложения...")
+	log.Println("Starting application...")
 
-	// Загрузка конфигурации
 	loadConfig()
-	log.Printf("Конфигурация загружена: %+v", config)
+	log.Printf("Configuration loaded: %+v", config)
 
-	// Инициализация сервиса Google Sheets
 	if err := initSheetsService(); err != nil {
-		log.Fatalf("Ошибка инициализации Google Sheets: %v", err)
+		log.Fatalf("Failed to initialize Google Sheets: %v", err)
 	}
 
-	// Проверка доступа к таблице
-	if err := verifySheetsAccess(); err != nil {
-		log.Fatalf("Ошибка доступа к таблице: %v", err)
+	// Perform test write operation
+	if err := testWriteOperation(); err != nil {
+		log.Fatalf("Test write operation failed: %v", err)
 	}
 
-	// Настройка маршрутов HTTP
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
 	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
 
-	// Обслуживание статических файлов
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/", fs)
 
-	// Настройка HTTP сервера
 	srv := &http.Server{
 		Addr:         ":" + config.Port,
 		ReadTimeout:  10 * time.Second,
@@ -82,141 +74,105 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Сервер запущен на порту %s", config.Port)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Ошибка сервера: %v", err)
+	log.Printf("Server running on port %s", config.Port)
+	log.Fatal(srv.ListenAndServe())
+}
+
+func testWriteOperation() error {
+	testData := ProductionData{
+		Date:             time.Now().Format("2006-01-02"),
+		FullName:         "TEST USER",
+		PartAndOperation: "TEST PART/OPERATION",
+		TotalParts:       "1",
+		Defective:        "0",
+		GoodParts:        "1",
+		Notes:            "TEST RECORD",
 	}
+
+	log.Println("Performing test write operation...")
+	if err := appendProductionData(testData); err != nil {
+		return fmt.Errorf("test write failed: %v", err)
+	}
+	log.Println("Test write operation successful")
+	return nil
 }
 
 func loadConfig() {
-	// Установка значений по умолчанию
+	// Default values
 	config = Config{
 		Port:            "8080",
 		ProductionSheet: "Production",
 		TimesheetSheet:  "Timesheet",
 	}
 
-	// Загрузка конфигурации из файла
+	// Load from config file if exists
 	if file, err := os.Open("config.json"); err == nil {
 		defer file.Close()
 		if err := json.NewDecoder(file).Decode(&config); err != nil {
-			log.Printf("Ошибка чтения config.json: %v", err)
+			log.Printf("Error reading config.json: %v", err)
 		}
 	}
 
-	// Переопределение переменными окружения
+	// Override with environment variables
 	if envID := os.Getenv("SPREADSHEET_ID"); envID != "" {
 		config.SpreadsheetID = envID
 	}
 
-	// Валидация обязательных полей
+	// Validation
 	if config.SpreadsheetID == "" {
-		log.Fatal("SpreadsheetID должен быть указан в config.json или SPREADSHEET_ID")
+		log.Fatal("SpreadsheetID must be specified in config.json or SPREADSHEET_ID environment variable")
 	}
 }
 
 func initSheetsService() error {
 	ctx := context.Background()
 
-	// Загрузка учетных данных
 	creds, err := loadCredentials()
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
+		return fmt.Errorf("failed to load credentials: %v", err)
 	}
 
-	// Создание JWT конфигурации
+	// Validate credentials by attempting to create JWT config
 	conf, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
 	if err != nil {
-		return fmt.Errorf("ошибка создания JWT конфига: %v", err)
+		return fmt.Errorf("invalid credentials: %v", err)
 	}
 
-	// Создание сервиса Google Sheets
-	sheetsService, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
+	// Create service with retry
+	var service *sheets.Service
+	for i := 0; i < 3; i++ {
+		service, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second * time.Duration(i+1))
+	}
 	if err != nil {
-		return fmt.Errorf("ошибка создания сервиса Sheets: %v", err)
+		return fmt.Errorf("failed to create sheets service: %v", err)
 	}
 
-	return nil
-}
-
-func verifySheetsAccess() error {
-	// Проверка существования таблицы
-	_, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Do()
-	if err != nil {
-		return fmt.Errorf("ошибка доступа к таблице: %v", err)
-	}
-
-	// Проверка существования листов
-	if _, err := sheetsService.Spreadsheets.Values.Get(
-		config.SpreadsheetID,
-		config.ProductionSheet+"!A1",
-	).Do(); err != nil {
-		return fmt.Errorf("лист производства не найден: %v", err)
-	}
-
-	if _, err := sheetsService.Spreadsheets.Values.Get(
-		config.SpreadsheetID,
-		config.TimesheetSheet+"!A1",
-	).Do(); err != nil {
-		return fmt.Errorf("лист табеля не найден: %v", err)
-	}
-
-	log.Println("Успешная проверка доступа к Google Sheets")
+	sheetsService = service
 	return nil
 }
 
 func loadCredentials() ([]byte, error) {
-	// 1. Пробуем получить из переменной окружения
+	// Try environment variable first
 	if base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64"); base64Data != "" {
 		data, err := base64.StdEncoding.DecodeString(base64Data)
 		if err != nil {
-			return nil, fmt.Errorf("ошибка декодирования base64: %v", err)
+			return nil, fmt.Errorf("failed to decode base64 credentials: %v", err)
 		}
-		log.Println("Используются учетные данные из GOOGLE_CREDENTIALS_BASE64")
+		log.Println("Using credentials from GOOGLE_CREDENTIALS_BASE64")
 		return data, nil
 	}
 
-	// 2. Пробуем прочитать из файла
+	// Try credentials file
 	if data, err := os.ReadFile("credentials.json"); err == nil {
-		log.Println("Используются учетные данные из credentials.json")
+		log.Println("Using credentials from credentials.json")
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("не найдены учетные данные (ни в GOOGLE_CREDENTIALS_BASE64, ни в credentials.json)")
-}
-
-func productionHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var data ProductionData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, "Неверный формат данных", http.StatusBadRequest)
-		return
-	}
-
-	// Установка текущей даты, если не указана
-	if data.Date == "" {
-		data.Date = time.Now().Format("2006-01-02")
-	}
-
-	// Валидация обязательных полей
-	if data.FullName == "" || data.PartAndOperation == "" || data.TotalParts == "" {
-		http.Error(w, "ФИО, Название операции и Количество деталей обязательны", http.StatusBadRequest)
-		return
-	}
-
-	// Запись в Google Sheets
-	if err := appendProductionData(data); err != nil {
-		log.Printf("Ошибка записи данных производства: %v", err)
-		http.Error(w, "Ошибка обработки данных", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	return nil, fmt.Errorf("no credentials provided (neither GOOGLE_CREDENTIALS_BASE64 nor credentials.json)")
 }
 
 func appendProductionData(data ProductionData) error {
@@ -229,57 +185,35 @@ func appendProductionData(data ProductionData) error {
 			data.Defective,
 			data.GoodParts,
 			data.Notes,
-			time.Now().Format("2006-01-02 15:04:05"),
+			time.Now().Format(time.RFC3339),
 		},
 	}
 
-	// Выполняем запись
-	resp, err := sheetsService.Spreadsheets.Values.Append(
-		config.SpreadsheetID,
-		config.ProductionSheet+"!A1",
-		&sheets.ValueRange{Values: values},
-	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
+	// Prepare request with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-	if err != nil {
-		return fmt.Errorf("ошибка при добавлении данных: %v", err)
+	// Execute with retry
+	var err error
+	for i := 0; i < 3; i++ {
+		resp, appendErr := sheetsService.Spreadsheets.Values.Append(
+			config.SpreadsheetID,
+			config.ProductionSheet,
+			&sheets.ValueRange{
+				Values:         values,
+				MajorDimension: "ROWS",
+			},
+		).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+
+		if appendErr == nil {
+			log.Printf("Data written successfully. Updated range: %s", resp.Updates.UpdatedRange)
+			return nil
+		}
+		err = appendErr
+		time.Sleep(time.Second * time.Duration(i+1))
 	}
 
-	log.Printf("Данные производства записаны. Обновленный диапазон: %s", resp.Updates.UpdatedRange)
-	return nil
-}
-
-func timesheetHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var data TimesheetData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, "Неверный формат данных", http.StatusBadRequest)
-		return
-	}
-
-	// Установка текущей даты, если не указана
-	if data.Date == "" {
-		data.Date = time.Now().Format("2006-01-02")
-	}
-
-	// Валидация обязательных полей
-	if data.FullName == "" || data.Hours == "" {
-		http.Error(w, "ФИО и Количество часов обязательны", http.StatusBadRequest)
-		return
-	}
-
-	// Запись в Google Sheets
-	if err := appendTimesheetData(data); err != nil {
-		log.Printf("Ошибка записи данных табеля: %v", err)
-		http.Error(w, "Ошибка обработки данных", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	return fmt.Errorf("failed to append data after 3 attempts: %v", err)
 }
 
 func appendTimesheetData(data TimesheetData) error {
@@ -288,28 +222,102 @@ func appendTimesheetData(data TimesheetData) error {
 			data.Date,
 			data.FullName,
 			data.Hours,
-			time.Now().Format("2006-01-02 15:04:05"),
+			time.Now().Format(time.RFC3339),
 		},
 	}
 
-	// Выполняем запись
-	resp, err := sheetsService.Spreadsheets.Values.Append(
-		config.SpreadsheetID,
-		config.TimesheetSheet+"!A1",
-		&sheets.ValueRange{Values: values},
-	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-	if err != nil {
-		return fmt.Errorf("ошибка при добавлении данных: %v", err)
+	var err error
+	for i := 0; i < 3; i++ {
+		resp, appendErr := sheetsService.Spreadsheets.Values.Append(
+			config.SpreadsheetID,
+			config.TimesheetSheet,
+			&sheets.ValueRange{
+				Values:         values,
+				MajorDimension: "ROWS",
+			},
+		).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+
+		if appendErr == nil {
+			log.Printf("Timesheet data written successfully. Updated range: %s", resp.Updates.UpdatedRange)
+			return nil
+		}
+		err = appendErr
+		time.Sleep(time.Second * time.Duration(i+1))
 	}
 
-	log.Printf("Данные табеля записаны. Обновленный диапазон: %s", resp.Updates.UpdatedRange)
-	return nil
+	return fmt.Errorf("failed to append timesheet data after 3 attempts: %v", err)
+}
+
+func productionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var data ProductionData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validation
+	if strings.TrimSpace(data.FullName) == "" || strings.TrimSpace(data.PartAndOperation) == "" || strings.TrimSpace(data.TotalParts) == "" {
+		http.Error(w, "Full name, part/operation and total parts are required", http.StatusBadRequest)
+		return
+	}
+
+	if data.Date == "" {
+		data.Date = time.Now().Format("2006-01-02")
+	}
+
+	if err := appendProductionData(data); err != nil {
+		log.Printf("Error writing production data: %v", err)
+		http.Error(w, "Failed to process data", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func timesheetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var data TimesheetData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validation
+	if strings.TrimSpace(data.FullName) == "" || strings.TrimSpace(data.Hours) == "" {
+		http.Error(w, "Full name and hours are required", http.StatusBadRequest)
+		return
+	}
+
+	if data.Date == "" {
+		data.Date = time.Now().Format("2006-01-02")
+	}
+
+	if err := appendTimesheetData(data); err != nil {
+		log.Printf("Error writing timesheet data: %v", err)
+		http.Error(w, "Failed to process data", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "Сервис работает нормально")
+	w.Write([]byte("Service is healthy"))
 }
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
@@ -319,6 +327,7 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 
