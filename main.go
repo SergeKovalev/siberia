@@ -20,18 +20,26 @@ type Config struct {
 	Port            string `json:"port"`
 	CredentialsFile string `json:"credentialsFile"`
 	SpreadsheetID   string `json:"spreadsheetID"`
-	SheetName       string `json:"sheetName"`
+	ProductionSheet string `json:"productionSheet"` // Лист для учета производства
+	TimesheetSheet  string `json:"timesheetSheet"`  // Лист для табеля работы
 }
 
-// UserData представляет данные для вашей таблицы
-type UserData struct {
-	Date             string `json:"date"`             // Дата
-	FullName         string `json:"fullName"`         // ФИО
-	PartAndOperation string `json:"partAndOperation"` // Название детали и операции
-	TotalParts       string `json:"totalParts"`       // Кол-во деталей общее
-	Defective        string `json:"defective"`        // Брак
-	GoodParts        string `json:"goodParts"`        // Кол-во деталей чистое
-	Notes            string `json:"notes"`            // Для заметок
+// ProductionData представляет данные формы учета производства
+type ProductionData struct {
+	Date             string `json:"date"`
+	FullName         string `json:"fullName"`
+	PartAndOperation string `json:"partAndOperation"`
+	TotalParts       string `json:"totalParts"`
+	Defective        string `json:"defective"`
+	GoodParts        string `json:"goodParts"`
+	Notes            string `json:"notes"`
+}
+
+// TimesheetData представляет данные формы табеля работы
+type TimesheetData struct {
+	Date     string `json:"date"`
+	FullName string `json:"fullName"`
+	Hours    string `json:"hours"`
 }
 
 var (
@@ -50,11 +58,9 @@ func main() {
 	loadConfig()
 
 	// Настройка HTTP маршрутов
-	http.HandleFunc("/submit", enableCORS(submitHandler))
+	http.HandleFunc("/submit-production", enableCORS(productionHandler))
+	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
-
-	// Запуск сервера
-	log.Printf("Сервис запущен на порту %s", config.Port)
 
 	// Обработка статики
 	fs := http.FileServer(http.Dir("./static"))
@@ -63,14 +69,14 @@ func main() {
 	// Настройка HTTP-сервера с таймаутами
 	srv := &http.Server{
 		Addr:         ":" + config.Port,
-		ReadTimeout:  10 * time.Second, // Макс время чтения запроса
-		WriteTimeout: 30 * time.Second, // Макс время записи ответа
-		IdleTimeout:  60 * time.Second, // Макс время бездействия
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	log.Printf("Сервис запущен на порту %s", config.Port)
 
-	// Запуск сервера с обработкой ошибок
+	// Запуск сервера
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Ошибка сервера: %v", err)
 	}
@@ -87,9 +93,10 @@ func loadCredentials() ([]byte, error) {
 func loadConfig() {
 	// Значения по умолчанию
 	config = Config{
-		Port:          "8080",
-		SpreadsheetID: "",
-		SheetName:     "Sheet1",
+		Port:            "8080",
+		SpreadsheetID:   "",
+		ProductionSheet: "Выпуск",
+		TimesheetSheet:  "Табель",
 	}
 
 	// Попытка загрузить конфиг из файла
@@ -110,54 +117,83 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Сервис работает нормально")
 }
 
-func submitHandler(w http.ResponseWriter, r *http.Request) {
-	// Разрешаем только POST запросы
+func productionHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Парсим данные пользователя
-	var userData UserData
-	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+	var data ProductionData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		http.Error(w, "Неверный формат данных", http.StatusBadRequest)
 		return
 	}
 
-	// Установим текущую дату, если не указана
-	if userData.Date == "" {
-		userData.Date = time.Now().Format("2006-01-02")
+	// Установка текущей даты, если не указана
+	if data.Date == "" {
+		data.Date = time.Now().Format("2006-01-02")
 	}
 
 	// Валидация обязательных полей
-	if userData.FullName == "" || userData.PartAndOperation == "" {
-		http.Error(w, "ФИО и Название детали/операции обязательны для заполнения", http.StatusBadRequest)
+	if data.FullName == "" || data.PartAndOperation == "" || data.TotalParts == "" {
+		http.Error(w, "ФИО, Название операции и Количество деталей обязательны", http.StatusBadRequest)
 		return
 	}
 
-	// Записываем данные в Google Таблицу
-	if err := appendToGoogleSheet(userData); err != nil {
-		log.Printf("Ошибка записи в Google Таблицу: %v", err)
+	// Запись в Google Sheets
+	if err := appendProductionData(data); err != nil {
+		log.Printf("Ошибка записи данных производства: %v", err)
 		http.Error(w, "Ошибка обработки данных", http.StatusInternalServerError)
 		return
 	}
 
-	// Отправляем успешный ответ
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-func appendToGoogleSheet(userData UserData) error {
+func timesheetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var data TimesheetData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Неверный формат данных", http.StatusBadRequest)
+		return
+	}
+
+	// Установка текущей даты, если не указана
+	if data.Date == "" {
+		data.Date = time.Now().Format("2006-01-02")
+	}
+
+	// Валидация обязательных полей
+	if data.FullName == "" || data.Hours == "" {
+		http.Error(w, "ФИО и Количество часов обязательны", http.StatusBadRequest)
+		return
+	}
+
+	// Запись в Google Sheets
+	if err := appendTimesheetData(data); err != nil {
+		log.Printf("Ошибка записи данных табеля: %v", err)
+		http.Error(w, "Ошибка обработки данных", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func appendProductionData(data ProductionData) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Чтение учетных данных
 	credentials, err := loadCredentials()
 	if err != nil {
 		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
 	}
 
-	// Создание клиента Google Sheets
 	client, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
 	if err != nil {
 		return fmt.Errorf("не удалось создать JWT конфиг: %v", err)
@@ -168,33 +204,67 @@ func appendToGoogleSheet(userData UserData) error {
 		return fmt.Errorf("не удалось создать сервис Google Sheets: %v", err)
 	}
 
-	// Подготовка данных для записи (соответствует вашим столбцам)
+	// Подготовка данных для записи
 	values := [][]interface{}{
 		{
-			userData.Date,
-			userData.FullName,
-			userData.PartAndOperation,
-			userData.TotalParts,
-			userData.Defective,
-			userData.GoodParts,
-			userData.Notes,
+			data.Date,
+			data.FullName,
+			data.PartAndOperation,
+			data.TotalParts,
+			data.Defective,
+			data.GoodParts,
+			data.Notes,
+			time.Now().Format("2006-01-02 15:04:05"), // Timestamp записи
 		},
 	}
 
-	// Получаем последнюю заполненную строку
-	resp, err := srv.Spreadsheets.Values.Get(
+	// Определяем диапазон для записи
+	rangeData := fmt.Sprintf("%s!A1", config.ProductionSheet)
+
+	// Используем Append для добавления новой строки
+	_, err = srv.Spreadsheets.Values.Append(
 		config.SpreadsheetID,
-		config.SheetName+"!A:A", // Проверяем столбец A (Дата)
-	).Do()
+		rangeData,
+		&sheets.ValueRange{Values: values},
+	).ValueInputOption("USER_ENTERED").Do()
+
+	return err
+}
+
+func appendTimesheetData(data TimesheetData) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	credentials, err := loadCredentials()
 	if err != nil {
-		return fmt.Errorf("ошибка получения данных: %v", err)
+		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
 	}
 
-	lastRow := len(resp.Values) + 1 // Следующая после последней
-	rangeData := fmt.Sprintf("%s!A%d:G%d", config.SheetName, lastRow, lastRow)
+	client, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
+	if err != nil {
+		return fmt.Errorf("не удалось создать JWT конфиг: %v", err)
+	}
 
-	// Используем Update вместо Append
-	_, err = srv.Spreadsheets.Values.Update(
+	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client.Client(ctx)))
+	if err != nil {
+		return fmt.Errorf("не удалось создать сервис Google Sheets: %v", err)
+	}
+
+	// Подготовка данных для записи
+	values := [][]interface{}{
+		{
+			data.Date,
+			data.FullName,
+			data.Hours,
+			time.Now().Format("2006-01-02 15:04:05"), // Timestamp записи
+		},
+	}
+
+	// Определяем диапазон для записи
+	rangeData := fmt.Sprintf("%s!A1", config.TimesheetSheet)
+
+	// Используем Append для добавления новой строки
+	_, err = srv.Spreadsheets.Values.Append(
 		config.SpreadsheetID,
 		rangeData,
 		&sheets.ValueRange{Values: values},
@@ -205,7 +275,6 @@ func appendToGoogleSheet(userData UserData) error {
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Разрешаем запросы с любого origin
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")

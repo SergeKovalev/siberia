@@ -15,11 +15,7 @@
             font-family: 'Roboto', Arial, sans-serif;
             margin: 0;
             padding: 0;
-            background: linear-gradient(rgba(245, 247, 250, 0.9), rgba(245, 247, 250, 0.9)), 
-                        url('https://images.unsplash.com/photo-1609879071226-55dbf8f30ff4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1470&q=80');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             min-height: 100vh;
         }
         
@@ -27,11 +23,10 @@
             max-width: 800px;
             margin: 40px auto;
             padding: 30px;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.98);
             border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(0, 0, 0, 0.08);
         }
         
         h1 {
@@ -44,6 +39,39 @@
             border-bottom: 2px solid var(--secondary-color);
             padding-bottom: 10px;
             font-size: 24px;
+        }
+        
+        .form-switcher {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .form-switcher button {
+            flex: 1;
+            background: none;
+            border: none;
+            padding: 12px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--primary-color);
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            font-size: 16px;
+        }
+        
+        .form-switcher button.active {
+            border-bottom: 3px solid var(--secondary-color);
+            color: var(--secondary-color);
+            background-color: rgba(66, 133, 244, 0.1);
+        }
+        
+        .form-section {
+            display: none;
+        }
+        
+        .form-section.active {
+            display: block;
         }
         
         .form-group {
@@ -65,7 +93,7 @@
             box-sizing: border-box;
             font-size: 16px;
             transition: all 0.3s ease;
-            background-color: rgba(255, 255, 255, 0.8);
+            background-color: rgba(255, 255, 255, 0.9);
         }
         
         input:focus, textarea:focus, select:focus {
@@ -97,6 +125,9 @@
             letter-spacing: 1px;
             transition: all 0.3s ease;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         button:hover {
@@ -107,6 +138,10 @@
         
         button:active {
             transform: translateY(0);
+        }
+        
+        button svg {
+            margin-right: 8px;
         }
         
         .status-overlay {
@@ -160,38 +195,33 @@
             margin-bottom: 20px;
         }
         
-        .logo img {
+        .logo svg {
             height: 60px;
+            color: var(--primary-color);
         }
 
         /* Мобильная адаптация */
         @media (max-width: 768px) {
-            body {
-                background-attachment: scroll;
-            }
-            
             .form-container {
                 margin: 20px 15px;
                 padding: 20px;
-                border-radius: 6px;
             }
             
             h1 {
                 font-size: 20px;
-                margin-bottom: 20px;
             }
             
-            input, textarea, select {
+            .form-switcher button {
+                padding: 10px;
+                font-size: 14px;
+            }
+            
+            input, textarea, select, button {
                 padding: 10px 12px;
                 font-size: 15px;
             }
             
-            button {
-                padding: 12px 15px;
-                font-size: 15px;
-            }
-            
-            .logo img {
+            .logo svg {
                 height: 50px;
             }
             
@@ -216,6 +246,21 @@
             .form-group {
                 margin-bottom: 15px;
             }
+            
+            .form-switcher {
+                flex-direction: column;
+            }
+            
+            .form-switcher button {
+                border-bottom: none;
+                border-left: 3px solid transparent;
+                text-align: left;
+            }
+            
+            .form-switcher button.active {
+                border-bottom: none;
+                border-left: 3px solid var(--secondary-color);
+            }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -223,66 +268,106 @@
 <body>
     <div class="form-container">
         <div class="logo">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" height="60">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
             </svg>
         </div>
         <h1>Учет производства</h1>
+        
+        <div class="form-switcher">
+            <button @click="switchForm('production')" :class="{active: activeForm === 'production'}">Учет деталей</button>
+            <button @click="switchForm('timesheet')" :class="{active: activeForm === 'timesheet'}">Табель работы</button>
+        </div>
+        
         <div id="app">
-            <div class="form-group">
-                <label>Дата:</label>
-                <input type="date" v-model="form.date">
+            <!-- Форма учета производства -->
+            <div class="form-section" :class="{active: activeForm === 'production'}">
+                <div class="form-group">
+                    <label>Дата:</label>
+                    <input type="date" v-model="productionForm.date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>ФИО сотрудника:</label>
+                    <select v-model="productionForm.fullName" required>
+                        <option value="" disabled selected>Выберите сотрудника</option>
+                        <option v-for="employee in employees" :value="employee">{{ employee }}</option>
+                        <option value="Другой">Другой (указать)</option>
+                    </select>
+                    <input v-if="productionForm.fullName === 'Другой'" 
+                           v-model="customEmployee" 
+                           placeholder="Введите ФИО" 
+                           class="custom-input"
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Название детали и операции:</label>
+                    <select v-model="productionForm.partAndOperation" required>
+                        <option value="" disabled selected>Выберите операцию</option>
+                        <option v-for="operation in operations" :value="operation">{{ operation }}</option>
+                        <option value="Другая">Другая (указать)</option>
+                    </select>
+                    <input v-if="productionForm.partAndOperation === 'Другая'" 
+                           v-model="customOperation" 
+                           placeholder="Введите название операции" 
+                           class="custom-input"
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Количество деталей (общее):</label>
+                    <input type="number" v-model="productionForm.totalParts" placeholder="10" min="0" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Брак:</label>
+                    <input type="number" v-model="productionForm.defective" placeholder="0" min="0">
+                </div>
+                
+                <div class="form-group">
+                    <label>Примечания:</label>
+                    <textarea v-model="productionForm.notes" rows="3" placeholder="Особенности работы..."></textarea>
+                </div>
+                
+                <button @click="submitProductionForm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    Сохранить в таблицу
+                </button>
             </div>
             
-            <div class="form-group">
-                <label>ФИО сотрудника:</label>
-                <select v-model="form.fullName" required>
-                    <option value="" disabled selected>Выберите сотрудника</option>
-                    <option v-for="employee in employees" :value="employee">{{ employee }}</option>
-                    <option value="Другой">Другой (указать)</option>
-                </select>
-                <input v-if="form.fullName === 'Другой'" 
-                       v-model="customEmployee" 
-                       placeholder="Введите ФИО" 
-                       class="custom-input">
+            <!-- Форма табеля работы -->
+            <div class="form-section" :class="{active: activeForm === 'timesheet'}">
+                <div class="form-group">
+                    <label>ФИО сотрудника:</label>
+                    <select v-model="timesheetForm.fullName" required>
+                        <option value="" disabled selected>Выберите сотрудника</option>
+                        <option v-for="employee in employees" :value="employee">{{ employee }}</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Дата:</label>
+                    <input type="date" v-model="timesheetForm.date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Количество часов:</label>
+                    <input type="number" v-model="timesheetForm.hours" min="0" max="24" step="0.5" placeholder="8" required>
+                </div>
+                
+                <button @click="submitTimesheetForm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Сохранить в табель
+                </button>
             </div>
-            
-            <div class="form-group">
-                <label>Название детали и операции:</label>
-                <select v-model="form.partAndOperation" required>
-                    <option value="" disabled selected>Выберите операцию</option>
-                    <option v-for="operation in operations" :value="operation">{{ operation }}</option>
-                    <option value="Другая">Другая (указать)</option>
-                </select>
-                <input v-if="form.partAndOperation === 'Другая'" 
-                       v-model="customOperation" 
-                       placeholder="Введите название операции" 
-                       class="custom-input">
-            </div>
-            
-            <div class="form-group">
-                <label>Количество деталей (общее):</label>
-                <input type="number" v-model="form.totalParts" placeholder="10" min="0">
-            </div>
-            
-            <div class="form-group">
-                <label>Брак:</label>
-                <input type="number" v-model="form.defective" placeholder="0" min="0">
-            </div>
-            
-            <div class="form-group">
-                <label>Примечания:</label>
-                <textarea v-model="form.notes" rows="3" placeholder="Особенности работы..."></textarea>
-            </div>
-            
-            <button @click="submit">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                    <polyline points="7 3 7 8 15 8"></polyline>
-                </svg>
-                Сохранить в таблицу
-            </button>
             
             <div class="status-overlay" v-if="message" @click="message = ''">
                 <div class="status-content" :class="{'status-success': !isError, 'status-error': isError}">
@@ -300,13 +385,19 @@
         new Vue({
             el: '#app',
             data: {
-                form: {
+                activeForm: 'production',
+                productionForm: {
                     date: new Date().toISOString().substr(0, 10),
                     fullName: '',
                     partAndOperation: '',
                     totalParts: '',
                     defective: '',
                     notes: ''
+                },
+                timesheetForm: {
+                    fullName: '',
+                    date: new Date().toISOString().substr(0, 10),
+                    hours: ''
                 },
                 employees: [
                     "Афанасьев",
@@ -351,25 +442,40 @@
                 isError: false
             },
             methods: {
-                async submit() {
-                    if (this.form.fullName === 'Другой' && this.customEmployee) {
-                        this.form.fullName = this.customEmployee;
+                switchForm(formType) {
+                    this.activeForm = formType;
+                    this.message = '';
+                },
+                
+                async submitProductionForm() {
+                    // Подставляем кастомные значения если выбрано "Другой"
+                    if (this.productionForm.fullName === 'Другой') {
+                        if (!this.customEmployee) {
+                            this.showMessage("Введите ФИО сотрудника", true);
+                            return;
+                        }
+                        this.productionForm.fullName = this.customEmployee;
                     }
                     
-                    if (this.form.partAndOperation === 'Другая' && this.customOperation) {
-                        this.form.partAndOperation = this.customOperation;
+                    if (this.productionForm.partAndOperation === 'Другая') {
+                        if (!this.customOperation) {
+                            this.showMessage("Введите название операции", true);
+                            return;
+                        }
+                        this.productionForm.partAndOperation = this.customOperation;
                     }
 
-                    if (!this.form.fullName || !this.form.partAndOperation) {
-                        this.showMessage("ФИО и название операции обязательны!", true);
+                    // Валидация
+                    if (!this.productionForm.fullName || !this.productionForm.partAndOperation || !this.productionForm.totalParts) {
+                        this.showMessage("Обязательные поля не заполнены!", true);
                         return;
                     }
 
                     try {
-                        const response = await fetch('/submit', {
+                        const response = await fetch('/submit-production', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.form)
+                            body: JSON.stringify(this.productionForm)
                         });
                         
                         if (!response.ok) {
@@ -377,14 +483,40 @@
                             throw new Error(error);
                         }
                         
-                        this.showMessage("Данные успешно сохранены в Google Таблицу!");
-                        this.clearForm();
+                        this.showMessage("Данные производства успешно сохранены!");
+                        this.clearProductionForm();
                     } catch (err) {
                         this.showMessage("Ошибка: " + err.message, true);
                     }
                 },
-                clearForm() {
-                    this.form = {
+                
+                async submitTimesheetForm() {
+                    if (!this.timesheetForm.fullName || !this.timesheetForm.date || !this.timesheetForm.hours) {
+                        this.showMessage("Все поля обязательны для заполнения!", true);
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/submit-timesheet', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.timesheetForm)
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.text();
+                            throw new Error(error);
+                        }
+                        
+                        this.showMessage("Данные табеля успешно сохранены!");
+                        this.timesheetForm.hours = '';
+                    } catch (err) {
+                        this.showMessage("Ошибка: " + err.message, true);
+                    }
+                },
+                
+                clearProductionForm() {
+                    this.productionForm = {
                         date: new Date().toISOString().substr(0, 10),
                         fullName: '',
                         partAndOperation: '',
@@ -395,6 +527,7 @@
                     this.customEmployee = '';
                     this.customOperation = '';
                 },
+                
                 showMessage(msg, isErr = false) {
                     this.message = msg;
                     this.isError = isErr;
