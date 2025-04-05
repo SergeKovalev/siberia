@@ -49,12 +49,28 @@
             
             <div class="form-group">
                 <label>ФИО сотрудника:</label>
-                <input v-model="form.fullName" placeholder="Иванов Иван Иванович" required>
+                <select v-model="form.fullName" required>
+                    <option value="" disabled selected>Выберите сотрудника</option>
+                    <option v-for="employee in employees" :value="employee">{{ employee }}</option>
+                    <option value="Другой">Другой (указать)</option>
+                </select>
+                <input v-if="form.fullName === 'Другой'" 
+                       v-model="customEmployee" 
+                       placeholder="Введите ФИО" 
+                       style="margin-top: 5px;">
             </div>
             
             <div class="form-group">
                 <label>Название детали и операции:</label>
-                <input v-model="form.partAndOperation" placeholder="Сибирь" required>
+                <select v-model="form.partAndOperation" required>
+                    <option value="" disabled selected>Выберите операцию</option>
+                    <option v-for="operation in operations" :value="operation">{{ operation }}</option>
+                    <option value="Другая">Другая (указать)</option>
+                </select>
+                <input v-if="form.partAndOperation === 'Другая'" 
+                       v-model="customOperation" 
+                       placeholder="Введите название операции" 
+                       style="margin-top: 5px;">
             </div>
             
             <div class="form-group">
@@ -93,11 +109,59 @@
                     defective: '',
                     notes: ''
                 },
+                employees: [
+                    "Афанасьев",
+                    "Бурлаков",
+                    "Горемыкин",
+                    "Маслов",
+                    "Овсиенко",
+                    "Серягин",
+                    "Полушин",
+                    "Отрадных",
+                    "Соболев"
+                ],
+                operations: [
+                    "Гайка Сибирь",
+                    "Крышка Сибирь 1оп",
+                    "Крышка Сибирь 2оп",
+                    "Крышка Сибирь 3оп",
+                    "Основание Сибирь 1-2оп",
+                    "Сопло Сибирь",
+                    "Трубка Сибирь",
+                    "Втулка Сибирь (Алюм.)",
+                    "Втулка Сибирь (Латунь)",
+                    "Болт Зорька",
+                    "Винт регулировочный М6",
+                    "Винт регулировочный М8",
+                    "Гайка МС",
+                    "Крышка МС 1оп",
+                    "Крышка МС 2оп",
+                    "Крышка МС 3оп",
+                    "Крышка МС 4оп",
+                    "Основание МС 1оп",
+                    "Основание МС 2оп",
+                    "Основание МС 3-4оп",
+                    "Сопло МС",
+                    "Наконечник ДВИ",
+                    "Закрутка Основание МС",
+                    "Гайка МС доработка"
+                ],
+                customEmployee: '',
+                customOperation: '',
                 message: '',
                 isError: false
             },
             methods: {
                 async submit() {
+                    // Подставляем кастомные значения если выбрано "Другой"
+                    if (this.form.fullName === 'Другой' && this.customEmployee) {
+                        this.form.fullName = this.customEmployee;
+                    }
+                    
+                    if (this.form.partAndOperation === 'Другая' && this.customOperation) {
+                        this.form.partAndOperation = this.customOperation;
+                    }
+
                     // Валидация
                     if (!this.form.fullName || !this.form.partAndOperation) {
                         this.showMessage("ФИО и название операции обязательны!", true);
@@ -131,6 +195,8 @@
                         defective: '',
                         notes: ''
                     };
+                    this.customEmployee = '';
+                    this.customOperation = '';
                 },
                 showMessage(msg, isErr = false) {
                     this.message = msg;
