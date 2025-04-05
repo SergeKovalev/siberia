@@ -55,11 +55,6 @@ func main() {
 		log.Fatalf("Failed to initialize Google Sheets: %v", err)
 	}
 
-	// Perform test write operation
-	if err := testWriteOperation(); err != nil {
-		log.Fatalf("Test write operation failed: %v", err)
-	}
-
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
 	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
@@ -78,34 +73,13 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func testWriteOperation() error {
-	testData := ProductionData{
-		Date:             time.Now().Format("2006-01-02"),
-		FullName:         "TEST USER",
-		PartAndOperation: "TEST PART/OPERATION",
-		TotalParts:       "1",
-		Defective:        "0",
-		GoodParts:        "1",
-		Notes:            "TEST RECORD",
-	}
-
-	log.Println("Performing test write operation...")
-	if err := appendProductionData(testData); err != nil {
-		return fmt.Errorf("test write failed: %v", err)
-	}
-	log.Println("Test write operation successful")
-	return nil
-}
-
 func loadConfig() {
-	// Default values
 	config = Config{
 		Port:            "8080",
-		ProductionSheet: "Production",
-		TimesheetSheet:  "Timesheet",
+		ProductionSheet: "Выпуск",
+		TimesheetSheet:  "Табель",
 	}
 
-	// Load from config file if exists
 	if file, err := os.Open("config.json"); err == nil {
 		defer file.Close()
 		if err := json.NewDecoder(file).Decode(&config); err != nil {
@@ -113,14 +87,12 @@ func loadConfig() {
 		}
 	}
 
-	// Override with environment variables
 	if envID := os.Getenv("SPREADSHEET_ID"); envID != "" {
 		config.SpreadsheetID = envID
 	}
 
-	// Validation
 	if config.SpreadsheetID == "" {
-		log.Fatal("SpreadsheetID must be specified in config.json or SPREADSHEET_ID environment variable")
+		log.Fatal("SpreadsheetID must be specified")
 	}
 }
 
@@ -132,50 +104,67 @@ func initSheetsService() error {
 		return fmt.Errorf("failed to load credentials: %v", err)
 	}
 
-	// Validate credentials by attempting to create JWT config
 	conf, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
 	if err != nil {
 		return fmt.Errorf("invalid credentials: %v", err)
 	}
 
-	// Create service with retry
-	var service *sheets.Service
-	for i := 0; i < 3; i++ {
-		service, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
-		if err == nil {
-			break
-		}
-		time.Sleep(time.Second * time.Duration(i+1))
-	}
+	sheetsService, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
 	if err != nil {
 		return fmt.Errorf("failed to create sheets service: %v", err)
 	}
 
-	sheetsService = service
 	return nil
 }
 
 func loadCredentials() ([]byte, error) {
-	// Try environment variable first
 	if base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64"); base64Data != "" {
 		data, err := base64.StdEncoding.DecodeString(base64Data)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 credentials: %v", err)
 		}
-		log.Println("Using credentials from GOOGLE_CREDENTIALS_BASE64")
 		return data, nil
 	}
 
-	// Try credentials file
 	if data, err := os.ReadFile("credentials.json"); err == nil {
-		log.Println("Using credentials from credentials.json")
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("no credentials provided (neither GOOGLE_CREDENTIALS_BASE64 nor credentials.json)")
+	return nil, fmt.Errorf("no credentials provided")
+}
+
+func findFirstEmptyRow(sheetName string) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Получаем все данные с листа
+	resp, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		fmt.Sprintf("%s!A:A", sheetName),
+	).Context(ctx).Do()
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get sheet data: %v", err)
+	}
+
+	// Ищем первую пустую строку
+	for i, row := range resp.Values {
+		if len(row) == 0 || strings.TrimSpace(row[0].(string)) == "" {
+			return i + 1, nil // +1 потому что строки нумеруются с 1
+		}
+	}
+
+	// Если все строки заполнены, возвращаем следующую после последней
+	return len(resp.Values) + 1, nil
 }
 
 func appendProductionData(data ProductionData) error {
+	// Находим первую пустую строку
+	row, err := findFirstEmptyRow(config.ProductionSheet)
+	if err != nil {
+		return fmt.Errorf("failed to find empty row: %v", err)
+	}
+
 	values := [][]interface{}{
 		{
 			data.Date,
@@ -185,35 +174,30 @@ func appendProductionData(data ProductionData) error {
 			data.Defective,
 			data.GoodParts,
 			data.Notes,
-			time.Now().Format(time.RFC3339),
+			time.Now().Format("2006-01-02 15:04:05"),
 		},
 	}
 
-	// Prepare request with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Execute with retry
-	var err error
-	for i := 0; i < 3; i++ {
-		resp, appendErr := sheetsService.Spreadsheets.Values.Append(
-			config.SpreadsheetID,
-			config.ProductionSheet,
-			&sheets.ValueRange{
-				Values:         values,
-				MajorDimension: "ROWS",
-			},
-		).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	// Формируем диапазон для записи (например, "Выпуск!A5:I5")
+	rangeData := fmt.Sprintf("%s!A%d:I%d", config.ProductionSheet, row, row)
 
-		if appendErr == nil {
-			log.Printf("Data written successfully. Updated range: %s", resp.Updates.UpdatedRange)
-			return nil
-		}
-		err = appendErr
-		time.Sleep(time.Second * time.Duration(i+1))
+	_, err = sheetsService.Spreadsheets.Values.Update(
+		config.SpreadsheetID,
+		rangeData,
+		&sheets.ValueRange{
+			Values: values,
+		},
+	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
+
+	if err != nil {
+		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	return fmt.Errorf("failed to append data after 3 attempts: %v", err)
+	log.Printf("Data written to row %d", row)
+	return nil
 }
 
 func appendTimesheetData(data TimesheetData) error {
@@ -222,33 +206,27 @@ func appendTimesheetData(data TimesheetData) error {
 			data.Date,
 			data.FullName,
 			data.Hours,
-			time.Now().Format(time.RFC3339),
+			time.Now().Format("2006-01-02 15:04:05"),
 		},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	var err error
-	for i := 0; i < 3; i++ {
-		resp, appendErr := sheetsService.Spreadsheets.Values.Append(
-			config.SpreadsheetID,
-			config.TimesheetSheet,
-			&sheets.ValueRange{
-				Values:         values,
-				MajorDimension: "ROWS",
-			},
-		).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	_, err := sheetsService.Spreadsheets.Values.Append(
+		config.SpreadsheetID,
+		config.TimesheetSheet,
+		&sheets.ValueRange{
+			Values:         values,
+			MajorDimension: "ROWS",
+		},
+	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
 
-		if appendErr == nil {
-			log.Printf("Timesheet data written successfully. Updated range: %s", resp.Updates.UpdatedRange)
-			return nil
-		}
-		err = appendErr
-		time.Sleep(time.Second * time.Duration(i+1))
+	if err != nil {
+		return fmt.Errorf("failed to append timesheet data: %v", err)
 	}
 
-	return fmt.Errorf("failed to append timesheet data after 3 attempts: %v", err)
+	return nil
 }
 
 func productionHandler(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +241,6 @@ func productionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validation
 	if strings.TrimSpace(data.FullName) == "" || strings.TrimSpace(data.PartAndOperation) == "" || strings.TrimSpace(data.TotalParts) == "" {
 		http.Error(w, "Full name, part/operation and total parts are required", http.StatusBadRequest)
 		return
@@ -295,7 +272,6 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validation
 	if strings.TrimSpace(data.FullName) == "" || strings.TrimSpace(data.Hours) == "" {
 		http.Error(w, "Full name and hours are required", http.StatusBadRequest)
 		return
