@@ -197,7 +197,6 @@
             color: var(--primary-color);
         }
 
-        /* Мобильная адаптация */
         @media (max-width: 768px) {
             .form-container {
                 margin: 20px 15px;
@@ -272,13 +271,13 @@
         <h1>Учет производства</h1>
         
         <div class="form-switcher">
-            <button onclick="switchForm('production')" id="production-btn">Учет деталей</button>
+            <button onclick="switchForm('production')" id="production-btn" class="active">Учет деталей</button>
             <button onclick="switchForm('timesheet')" id="timesheet-btn">Табель работы</button>
         </div>
         
         <div id="app">
             <!-- Форма учета производства -->
-            <div class="form-section" id="production-form">
+            <div class="form-section active" id="production-form">
                 <div class="form-group">
                     <label>Дата:</label>
                     <input type="date" id="production-date" required>
@@ -369,7 +368,7 @@
             </div>
             
             <!-- Форма табеля работы -->
-            <div class="form-section" id="timesheet-form" style="display: none;">
+            <div class="form-section" id="timesheet-form">
                 <div class="form-group">
                     <label>ФИО сотрудника:</label>
                     <select id="timesheet-fullName" required>
@@ -417,11 +416,27 @@
     </div>
 
     <script>
-        // Установка текущей даты по умолчанию
+        // Проверка доступности API
+        async function checkAPI() {
+            try {
+                const response = await fetch('/health');
+                if (!response.ok) throw new Error('API недоступен');
+                console.log('API доступен');
+            } catch (error) {
+                console.error('API недоступен:', error);
+                showMessage("Ошибка подключения к серверу. Данные не будут сохранены!", true);
+            }
+        }
+
+        // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
+            // Установка текущей даты по умолчанию
             const today = new Date().toISOString().substr(0, 10);
             document.getElementById('production-date').value = today;
             document.getElementById('timesheet-date').value = today;
+            
+            // Проверка доступности API
+            checkAPI();
             
             // Обработчики для полей "Другой"
             document.getElementById('production-fullName').addEventListener('change', function() {
@@ -436,7 +451,8 @@
                 if (this.value !== 'Другая') customOperationField.value = '';
             });
         });
-        
+
+        // Переключение между формами
         function switchForm(formType) {
             if (formType === 'production') {
                 document.getElementById('production-form').style.display = 'block';
@@ -451,6 +467,7 @@
             }
         }
         
+        // Показать сообщение
         function showMessage(message, isError = false) {
             const overlay = document.getElementById('status-overlay');
             const content = document.getElementById('status-content');
@@ -464,14 +481,17 @@
             setTimeout(hideMessage, 5000);
         }
         
+        // Скрыть сообщение
         function hideMessage() {
             document.getElementById('status-overlay').style.display = 'none';
         }
         
-        function submitProductionForm() {
+        // Отправка формы учета производства
+        async function submitProductionForm() {
             const fullNameSelect = document.getElementById('production-fullName');
             let fullName = fullNameSelect.value;
             
+            // Проверка поля "Другой сотрудник"
             if (fullName === 'Другой') {
                 fullName = document.getElementById('custom-employee').value;
                 if (!fullName) {
@@ -483,6 +503,7 @@
             const operationSelect = document.getElementById('production-operation');
             let operation = operationSelect.value;
             
+            // Проверка поля "Другая операция"
             if (operation === 'Другая') {
                 operation = document.getElementById('custom-operation').value;
                 if (!operation) {
@@ -491,44 +512,108 @@
                 }
             }
             
+            // Получение остальных значений
             const date = document.getElementById('production-date').value;
             const totalParts = document.getElementById('production-totalParts').value;
+            const defective = document.getElementById('production-defective').value || '0';
+            const notes = document.getElementById('production-notes').value;
             
+            // Валидация обязательных полей
             if (!date || !fullName || !operation || !totalParts) {
                 showMessage("Обязательные поля не заполнены!", true);
                 return;
             }
             
-            // Здесь должна быть логика отправки данных на сервер
-            // Для демонстрации просто показываем сообщение об успехе
-            showMessage("Данные производства успешно сохранены!");
-            
-            // Очистка формы (кроме даты)
-            fullNameSelect.value = '';
-            operationSelect.value = '';
-            document.getElementById('production-totalParts').value = '';
-            document.getElementById('production-defective').value = '';
-            document.getElementById('production-notes').value = '';
-            document.getElementById('custom-employee').style.display = 'none';
-            document.getElementById('custom-operation').style.display = 'none';
+            try {
+                // Показать сообщение о загрузке
+                showMessage("Отправка данных...", false);
+                
+                // Отправка данных на сервер
+                const response = await fetch('/submit-production', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date,
+                        fullName,
+                        partAndOperation: operation,
+                        totalParts,
+                        defective,
+                        goodParts: (parseInt(totalParts) - parseInt(defective)).toString(),
+                        notes
+                    })
+                });
+                
+                // Обработка ответа сервера
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Ошибка сервера');
+                }
+                
+                // Успешная отправка
+                showMessage("Данные производства успешно сохранены!");
+                
+                // Очистка формы (кроме даты)
+                fullNameSelect.value = '';
+                operationSelect.value = '';
+                document.getElementById('production-totalParts').value = '';
+                document.getElementById('production-defective').value = '';
+                document.getElementById('production-notes').value = '';
+                document.getElementById('custom-employee').style.display = 'none';
+                document.getElementById('custom-operation').style.display = 'none';
+            } catch (error) {
+                // Обработка ошибок
+                showMessage("Ошибка: " + error.message, true);
+                console.error('Error:', error);
+            }
         }
         
-        function submitTimesheetForm() {
+        // Отправка формы табеля учета
+        async function submitTimesheetForm() {
             const fullName = document.getElementById('timesheet-fullName').value;
             const date = document.getElementById('timesheet-date').value;
             const hours = document.getElementById('timesheet-hours').value;
             
+            // Валидация полей
             if (!fullName || !date || !hours) {
                 showMessage("Все поля обязательны для заполнения!", true);
                 return;
             }
             
-            // Здесь должна быть логика отправки данных на сервер
-            // Для демонстрации просто показываем сообщение об успехе
-            showMessage("Данные табеля успешно сохранены!");
-            
-            // Очистка формы (кроме даты и сотрудника)
-            document.getElementById('timesheet-hours').value = '';
+            try {
+                // Показать сообщение о загрузке
+                showMessage("Отправка данных...", false);
+                
+                // Отправка данных на сервер
+                const response = await fetch('/submit-timesheet', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date,
+                        fullName,
+                        hours
+                    })
+                });
+                
+                // Обработка ответа сервера
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Ошибка сервера');
+                }
+                
+                // Успешная отправка
+                showMessage("Данные табеля успешно сохранены!");
+                
+                // Очистка формы (кроме даты и сотрудника)
+                document.getElementById('timesheet-hours').value = '';
+            } catch (error) {
+                // Обработка ошибок
+                showMessage("Ошибка: " + error.message, true);
+                console.error('Error:', error);
+            }
         }
     </script>
 </body>
