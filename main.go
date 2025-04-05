@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,13 +50,12 @@ func main() {
 	log.Println("Starting application...")
 
 	loadConfig()
-	log.Printf("SpreadsheetID: %s", config.SpreadsheetID) // Добавлено для проверки
+	log.Printf("Configuration loaded: SpreadsheetID: %s", config.SpreadsheetID)
 
 	if err := initSheetsService(); err != nil {
 		log.Fatalf("Failed to initialize Google Sheets: %v", err)
 	}
 
-	// Проверка доступа
 	if err := verifyAccess(); err != nil {
 		log.Fatalf("Access verification failed: %v", err)
 	}
@@ -79,9 +79,6 @@ func main() {
 }
 
 func verifyAccess() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	_, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Do()
 	if err != nil {
 		return fmt.Errorf("failed to access spreadsheet: %v", err)
@@ -114,8 +111,6 @@ func loadConfig() {
 }
 
 func initSheetsService() error {
-	ctx := context.Background()
-
 	creds, err := loadCredentials()
 	if err != nil {
 		return fmt.Errorf("failed to load credentials: %v", err)
@@ -126,6 +121,7 @@ func initSheetsService() error {
 		return fmt.Errorf("invalid credentials: %v", err)
 	}
 
+	ctx := context.Background()
 	sheetsService, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
 	if err != nil {
 		return fmt.Errorf("failed to create sheets service: %v", err)
@@ -212,59 +208,55 @@ func appendProductionData(data ProductionData) error {
 	return nil
 }
 
-func findTimesheetCell(data TimesheetData) (string, error) {
+func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Получаем ФИО (столбец B, строки 4-12)
 	respNames, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
 		"Табель!B4:B12",
 	).Context(ctx).Do()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to get names: %v", err)
+		return "", 0, 0, fmt.Errorf("failed to get names: %v", err)
 	}
 
-	// Находим строку для ФИО
 	var targetRow int
 	for i, row := range respNames.Values {
 		if len(row) > 0 && strings.TrimSpace(row[0].(string)) == data.FullName {
-			targetRow = 4 + i // Строки начинаются с 4
+			targetRow = 4 + i
 			break
 		}
 	}
 
 	if targetRow == 0 {
-		return "", fmt.Errorf("full name not found")
+		return "", 0, 0, fmt.Errorf("full name not found")
 	}
 
-	// Получаем даты (строка 3, столбцы C-AG)
 	respDates, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
 		"Табель!C3:AG3",
 	).Context(ctx).Do()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to get dates: %v", err)
+		return "", 0, 0, fmt.Errorf("failed to get dates: %v", err)
 	}
 
-	// Находим столбец для даты
-	var targetCol string
+	var targetCol int
 	if len(respDates.Values) > 0 {
 		for i, cell := range respDates.Values[0] {
 			if cellStr, ok := cell.(string); ok && strings.TrimSpace(cellStr) == data.Date {
-				targetCol = columnToLetter(3 + i) // C=3, D=4, etc.
+				targetCol = 3 + i
 				break
 			}
 		}
 	}
 
-	if targetCol == "" {
-		return "", fmt.Errorf("date not found")
+	if targetCol == 0 {
+		return "", 0, 0, fmt.Errorf("date not found")
 	}
 
-	return fmt.Sprintf("Табель!%s%d", targetCol, targetRow), nil
+	return columnToLetter(targetCol), targetRow, targetCol, nil
 }
 
 func columnToLetter(col int) string {
@@ -278,10 +270,13 @@ func columnToLetter(col int) string {
 }
 
 func appendTimesheetData(data TimesheetData) error {
-	cell, err := findTimesheetCell(data)
+	colLetter, row, col, err := findTimesheetCell(data)
 	if err != nil {
 		return fmt.Errorf("failed to find cell: %v", err)
 	}
+
+	cell := fmt.Sprintf("Табель!%s%d", colLetter, row)
+	log.Printf("Writing to cell %s (row %d, col %d)", cell, row, col)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -298,7 +293,7 @@ func appendTimesheetData(data TimesheetData) error {
 		return fmt.Errorf("failed to update cell: %v", err)
 	}
 
-	log.Printf("Timesheet data written to %s", cell)
+	log.Printf("Successfully wrote hours to %s", cell)
 	return nil
 }
 
@@ -352,6 +347,11 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if data.Date == "" {
 		data.Date = time.Now().Format("2006-01-02")
+	}
+
+	if _, err := strconv.ParseFloat(data.Hours, 64); err != nil {
+		http.Error(w, "Hours must be a number", http.StatusBadRequest)
+		return
 	}
 
 	if err := appendTimesheetData(data); err != nil {
