@@ -18,10 +18,9 @@ import (
 // Config представляет конфигурацию приложения
 type Config struct {
 	Port            string `json:"port"`
-	CredentialsFile string `json:"credentialsFile"`
 	SpreadsheetID   string `json:"spreadsheetID"`
-	ProductionSheet string `json:"productionSheet"` // Лист для учета производства
-	TimesheetSheet  string `json:"timesheetSheet"`  // Лист для табеля работы
+	ProductionSheet string `json:"productionSheet"`
+	TimesheetSheet  string `json:"timesheetSheet"`
 }
 
 // ProductionData представляет данные формы учета производства
@@ -43,30 +42,39 @@ type TimesheetData struct {
 }
 
 var (
-	config Config
+	config        Config
+	sheetsService *sheets.Service
 )
 
-func init() {
-	logFile, err := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		log.SetOutput(logFile)
-	}
-}
-
 func main() {
+	// Инициализация логгера
+	log.SetOutput(os.Stdout)
+	log.Println("Запуск приложения...")
+
 	// Загрузка конфигурации
 	loadConfig()
+	log.Printf("Конфигурация загружена: %+v", config)
 
-	// Настройка HTTP маршрутов
+	// Инициализация сервиса Google Sheets
+	if err := initSheetsService(); err != nil {
+		log.Fatalf("Ошибка инициализации Google Sheets: %v", err)
+	}
+
+	// Проверка доступа к таблице
+	if err := verifySheetsAccess(); err != nil {
+		log.Fatalf("Ошибка доступа к таблице: %v", err)
+	}
+
+	// Настройка маршрутов HTTP
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
 	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
 
-	// Обработка статики
+	// Обслуживание статических файлов
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/", fs)
 
-	// Настройка HTTP-сервера с таймаутами
+	// Настройка HTTP сервера
 	srv := &http.Server{
 		Addr:         ":" + config.Port,
 		ReadTimeout:  10 * time.Second,
@@ -74,47 +82,107 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Сервис запущен на порту %s", config.Port)
-
-	// Запуск сервера
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	log.Printf("Сервер запущен на порту %s", config.Port)
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Ошибка сервера: %v", err)
 	}
 }
 
-func loadCredentials() ([]byte, error) {
-	base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64")
-	if base64Data == "" {
-		return nil, fmt.Errorf("переменная GOOGLE_CREDENTIALS_BASE64 не задана")
-	}
-	return base64.StdEncoding.DecodeString(base64Data)
-}
-
 func loadConfig() {
-	// Значения по умолчанию
+	// Установка значений по умолчанию
 	config = Config{
 		Port:            "8080",
-		SpreadsheetID:   "",
-		ProductionSheet: "Выпуск",
-		TimesheetSheet:  "Табель",
+		ProductionSheet: "Production",
+		TimesheetSheet:  "Timesheet",
 	}
 
-	// Попытка загрузить конфиг из файла
-	configFile, err := os.Open("config.json")
-	if err != nil {
-		log.Printf("Не удалось загрузить config.json, используются значения по умолчанию: %v", err)
-		return
+	// Загрузка конфигурации из файла
+	if file, err := os.Open("config.json"); err == nil {
+		defer file.Close()
+		if err := json.NewDecoder(file).Decode(&config); err != nil {
+			log.Printf("Ошибка чтения config.json: %v", err)
+		}
 	}
-	defer configFile.Close()
 
-	if err := json.NewDecoder(configFile).Decode(&config); err != nil {
-		log.Printf("Ошибка чтения config.json: %v", err)
+	// Переопределение переменными окружения
+	if envID := os.Getenv("SPREADSHEET_ID"); envID != "" {
+		config.SpreadsheetID = envID
+	}
+
+	// Валидация обязательных полей
+	if config.SpreadsheetID == "" {
+		log.Fatal("SpreadsheetID должен быть указан в config.json или SPREADSHEET_ID")
 	}
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Сервис работает нормально")
+func initSheetsService() error {
+	ctx := context.Background()
+
+	// Загрузка учетных данных
+	creds, err := loadCredentials()
+	if err != nil {
+		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
+	}
+
+	// Создание JWT конфигурации
+	conf, err := google.JWTConfigFromJSON(creds, sheets.SpreadsheetsScope)
+	if err != nil {
+		return fmt.Errorf("ошибка создания JWT конфига: %v", err)
+	}
+
+	// Создание сервиса Google Sheets
+	sheetsService, err = sheets.NewService(ctx, option.WithHTTPClient(conf.Client(ctx)))
+	if err != nil {
+		return fmt.Errorf("ошибка создания сервиса Sheets: %v", err)
+	}
+
+	return nil
+}
+
+func verifySheetsAccess() error {
+	// Проверка существования таблицы
+	_, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Do()
+	if err != nil {
+		return fmt.Errorf("ошибка доступа к таблице: %v", err)
+	}
+
+	// Проверка существования листов
+	if _, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		config.ProductionSheet+"!A1",
+	).Do(); err != nil {
+		return fmt.Errorf("лист производства не найден: %v", err)
+	}
+
+	if _, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		config.TimesheetSheet+"!A1",
+	).Do(); err != nil {
+		return fmt.Errorf("лист табеля не найден: %v", err)
+	}
+
+	log.Println("Успешная проверка доступа к Google Sheets")
+	return nil
+}
+
+func loadCredentials() ([]byte, error) {
+	// 1. Пробуем получить из переменной окружения
+	if base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64"); base64Data != "" {
+		data, err := base64.StdEncoding.DecodeString(base64Data)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка декодирования base64: %v", err)
+		}
+		log.Println("Используются учетные данные из GOOGLE_CREDENTIALS_BASE64")
+		return data, nil
+	}
+
+	// 2. Пробуем прочитать из файла
+	if data, err := os.ReadFile("credentials.json"); err == nil {
+		log.Println("Используются учетные данные из credentials.json")
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("не найдены учетные данные (ни в GOOGLE_CREDENTIALS_BASE64, ни в credentials.json)")
 }
 
 func productionHandler(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +219,35 @@ func productionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
+func appendProductionData(data ProductionData) error {
+	values := [][]interface{}{
+		{
+			data.Date,
+			data.FullName,
+			data.PartAndOperation,
+			data.TotalParts,
+			data.Defective,
+			data.GoodParts,
+			data.Notes,
+			time.Now().Format("2006-01-02 15:04:05"),
+		},
+	}
+
+	// Выполняем запись
+	resp, err := sheetsService.Spreadsheets.Values.Append(
+		config.SpreadsheetID,
+		config.ProductionSheet+"!A1",
+		&sheets.ValueRange{Values: values},
+	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
+
+	if err != nil {
+		return fmt.Errorf("ошибка при добавлении данных: %v", err)
+	}
+
+	log.Printf("Данные производства записаны. Обновленный диапазон: %s", resp.Updates.UpdatedRange)
+	return nil
+}
+
 func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -185,92 +282,20 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-func appendProductionData(data ProductionData) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	credentials, err := loadCredentials()
-	if err != nil {
-		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
-	}
-
-	client, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
-	if err != nil {
-		return fmt.Errorf("не удалось создать JWT конфиг: %v", err)
-	}
-
-	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client.Client(ctx)))
-	if err != nil {
-		return fmt.Errorf("не удалось создать сервис Google Sheets: %v", err)
-	}
-
-	// Подготовка данных для записи
-	values := [][]interface{}{
-		{
-			data.Date,
-			data.FullName,
-			data.PartAndOperation,
-			data.TotalParts,
-			data.Defective,
-			data.GoodParts,
-			data.Notes,
-			time.Now().Format("2006-01-02 15:04:05"), // Timestamp записи
-		},
-	}
-
-	// Определяем диапазон для записи (используем только имя листа для Append)
-	rangeData := config.ProductionSheet
-
-	// Используем Append для добавления новой строки
-	_, err = srv.Spreadsheets.Values.Append(
-		config.SpreadsheetID,
-		rangeData,
-		&sheets.ValueRange{Values: values},
-	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
-
-	if err != nil {
-		return fmt.Errorf("ошибка при добавлении данных: %v", err)
-	}
-
-	return nil
-}
-
 func appendTimesheetData(data TimesheetData) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	credentials, err := loadCredentials()
-	if err != nil {
-		return fmt.Errorf("ошибка загрузки учетных данных: %v", err)
-	}
-
-	client, err := google.JWTConfigFromJSON(credentials, sheets.SpreadsheetsScope)
-	if err != nil {
-		return fmt.Errorf("не удалось создать JWT конфиг: %v", err)
-	}
-
-	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client.Client(ctx)))
-	if err != nil {
-		return fmt.Errorf("не удалось создать сервис Google Sheets: %v", err)
-	}
-
-	// Подготовка данных для записи
 	values := [][]interface{}{
 		{
 			data.Date,
 			data.FullName,
 			data.Hours,
-			time.Now().Format("2006-01-02 15:04:05"), // Timestamp записи
+			time.Now().Format("2006-01-02 15:04:05"),
 		},
 	}
 
-	// Определяем диапазон для записи (используем только имя листа для Append)
-	rangeData := config.TimesheetSheet
-
-	// Используем Append для добавления новой строки
-	_, err = srv.Spreadsheets.Values.Append(
+	// Выполняем запись
+	resp, err := sheetsService.Spreadsheets.Values.Append(
 		config.SpreadsheetID,
-		rangeData,
+		config.TimesheetSheet+"!A1",
 		&sheets.ValueRange{Values: values},
 	).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
 
@@ -278,7 +303,13 @@ func appendTimesheetData(data TimesheetData) error {
 		return fmt.Errorf("ошибка при добавлении данных: %v", err)
 	}
 
+	log.Printf("Данные табеля записаны. Обновленный диапазон: %s", resp.Updates.UpdatedRange)
 	return nil
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "Сервис работает нормально")
 }
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
