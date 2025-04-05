@@ -1,0 +1,16 @@
+# Файлы Go
+/bin/
+/pkg/
+*.exe
+*.exe~
+
+# Файлы IDE
+.idea/
+.vscode/
+
+# Конфигурационные файлы
+.env
+credentials.json
+
+# Системные файлы
+.DS_Store

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Учет производства</title>
+    <style>
+        body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { 
+            width: 100%; 
+            padding: 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button { 
+            background: #4285f4; 
+            color: white; 
+            border: none; 
+            padding: 12px 20px; 
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .form-container {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background: #e6f7ee; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h1>Учет производства</h1>
+        <div id="app">
+            <div class="form-group">
+                <label>Дата:</label>
+                <input type="date" v-model="form.date">
+            </div>
+            
+            <div class="form-group">
+                <label>ФИО сотрудника:</label>
+                <input v-model="form.fullName" placeholder="Иванов Иван Иванович" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Название детали и операции:</label>
+                <input v-model="form.partAndOperation" placeholder="Сибирь" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Количество деталей (общее):</label>
+                <input type="number" v-model="form.totalParts" placeholder="10">
+            </div>
+            
+            <div class="form-group">
+                <label>Брак:</label>
+                <input type="number" v-model="form.defective" placeholder="0">
+            </div>
+            
+            <div class="form-group">
+                <label>Примечания:</label>
+                <textarea v-model="form.notes" rows="3" placeholder="Особенности работы..."></textarea>
+            </div>
+            
+            <button @click="submit">Сохранить в таблицу</button>
+            
+            <div class="status-message" :class="{success: !isError, error: isError}" v-if="message">
+                {{ message }}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                form: {
+                    date: new Date().toISOString().substr(0, 10),
+                    fullName: '',
+                    partAndOperation: '',
+                    totalParts: '',
+                    defective: '',
+                    notes: ''
+                },
+                message: '',
+                isError: false
+            },
+            methods: {
+                async submit() {
+                    // Валидация
+                    if (!this.form.fullName || !this.form.partAndOperation) {
+                        this.showMessage("ФИО и название операции обязательны!", true);
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/submit', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.form)
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.text();
+                            throw new Error(error);
+                        }
+                        
+                        this.showMessage("Данные успешно сохранены в Google Таблицу!");
+                        this.clearForm();
+                    } catch (err) {
+                        this.showMessage("Ошибка: " + err.message, true);
+                    }
+                },
+                clearForm() {
+                    this.form = {
+                        date: new Date().toISOString().substr(0, 10),
+                        fullName: '',
+                        partAndOperation: '',
+                        totalParts: '',
+                        defective: '',
+                        notes: ''
+                    };
+                },
+                showMessage(msg, isErr = false) {
+                    this.message = msg;
+                    this.isError = isErr;
+                    setTimeout(() => this.message = '', 5000);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
