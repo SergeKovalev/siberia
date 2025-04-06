@@ -17,6 +17,7 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+// Config содержит настройки приложения
 type Config struct {
 	Port            string `json:"port"`
 	SpreadsheetID   string `json:"spreadsheetID"`
@@ -24,6 +25,7 @@ type Config struct {
 	TimesheetSheet  string `json:"timesheetSheet"`
 }
 
+// ProductionData представляет данные о производстве
 type ProductionData struct {
 	Date             string `json:"date"`
 	FullName         string `json:"fullName"`
@@ -34,6 +36,7 @@ type ProductionData struct {
 	Notes            string `json:"notes"`
 }
 
+// TimesheetData представляет данные табеля учета времени
 type TimesheetData struct {
 	Date     string `json:"date"`
 	FullName string `json:"fullName"`
@@ -45,6 +48,7 @@ var (
 	sheetsService *sheets.Service
 )
 
+// main - точка входа в приложение
 func main() {
 	log.SetOutput(os.Stdout)
 	log.Println("Starting application...")
@@ -78,6 +82,7 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
+// verifyAccess проверяет доступ к таблице Google Sheets
 func verifyAccess() error {
 	_, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Do()
 	if err != nil {
@@ -87,6 +92,7 @@ func verifyAccess() error {
 	return nil
 }
 
+// loadConfig загружает конфигурацию из файла config.json или переменных окружения
 func loadConfig() {
 	config = Config{
 		Port:            "8080",
@@ -110,6 +116,7 @@ func loadConfig() {
 	}
 }
 
+// initSheetsService инициализирует сервис для работы с Google Sheets API
 func initSheetsService() error {
 	creds, err := loadCredentials()
 	if err != nil {
@@ -130,6 +137,7 @@ func initSheetsService() error {
 	return nil
 }
 
+// loadCredentials загружает учетные данные Google из переменной окружения или файла
 func loadCredentials() ([]byte, error) {
 	if base64Data := os.Getenv("GOOGLE_CREDENTIALS_BASE64"); base64Data != "" {
 		data, err := base64.StdEncoding.DecodeString(base64Data)
@@ -148,6 +156,7 @@ func loadCredentials() ([]byte, error) {
 	return nil, fmt.Errorf("no credentials provided")
 }
 
+// findLastNonEmptyRow находит последнюю непустую строку в указанном листе
 func findLastNonEmptyRow(sheetName string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -171,6 +180,7 @@ func findLastNonEmptyRow(sheetName string) (int, error) {
 	return lastNonEmpty, nil
 }
 
+// appendProductionData добавляет данные о производстве в таблицу
 func appendProductionData(data ProductionData) error {
 	lastRow, err := findLastNonEmptyRow(config.ProductionSheet)
 	if err != nil {
@@ -208,6 +218,7 @@ func appendProductionData(data ProductionData) error {
 	return nil
 }
 
+// findTimesheetCell находит ячейку в табеле учета времени для указанной даты и сотрудника
 func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -279,6 +290,7 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	return colLetter, targetRow, targetCol, nil
 }
 
+// columnToLetter преобразует номер столбца в буквенное обозначение (например, 1 -> A, 27 -> AA)
 func columnToLetter(col int) string {
 	letter := ""
 	for col > 0 {
@@ -289,6 +301,7 @@ func columnToLetter(col int) string {
 	return letter
 }
 
+// appendTimesheetData добавляет данные в табель учета времени
 func appendTimesheetData(data TimesheetData) error {
 	colLetter, row, col, err := findTimesheetCell(data)
 	if err != nil {
@@ -317,6 +330,7 @@ func appendTimesheetData(data TimesheetData) error {
 	return nil
 }
 
+// productionHandler обрабатывает запросы на добавление данных о производстве
 func productionHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -348,6 +362,7 @@ func productionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
+// timesheetHandler обрабатывает запросы на добавление данных в табель учета времени
 func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -390,11 +405,13 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
+// healthHandler обрабатывает запросы проверки работоспособности сервиса
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Service is healthy"))
 }
 
+// enableCORS добавляет заголовки CORS для обработки кросс-доменных запросов
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
