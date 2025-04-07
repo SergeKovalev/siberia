@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/api/sheets/v4"
 
-	"project/internal/config"
+	"github.com/sergekovalev/siberia/internal/config"
 )
 
 type ProductionData struct {
@@ -59,12 +59,12 @@ func AppendProductionData(srv *sheets.Service, cfg config.Config, data Productio
 	return nil
 }
 
-func findLastNonEmptyRow(sheetName string) (int, error) {
+func findLastNonEmptyRow(srv *sheets.Service, spreadsheetID, sheetName string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	resp, err := sheetsService.Spreadsheets.Values.Get(
-		config.SpreadsheetID,
+	resp, err := srv.Spreadsheets.Values.Get(
+		spreadsheetID,
 		fmt.Sprintf("%s!A:A", sheetName),
 	).Context(ctx).Do()
 

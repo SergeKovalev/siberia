@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/api/sheets/v4"
 
-	"project/internal/config"
-	"project/internal/utils"
+	"github.com/sergekovalev/siberia/internal/config"
+	"github.com/sergekovalev/siberia/internal/utils"
 )
 
 func InitHandlers(srv *sheets.Service, cfg config.Config) {

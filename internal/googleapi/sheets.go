@@ -11,7 +11,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 
-	"project/internal/config"
+	"github.com/sergekovalev/siberia/internal/config"
 )
 
 func InitSheetsService(cfg config.Config) (*sheets.Service, error) {

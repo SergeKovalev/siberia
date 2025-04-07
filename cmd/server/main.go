@@ -6,9 +6,11 @@ import (
 	"os"
 	"time"
 
-	"project/internal/config"
-	"project/internal/googleapi"
-	"project/internal/handlers"
+	"github.com/sergekovalev/siberia/internal/googleapi"
+
+	"github.com/sergekovalev/siberia/internal/handlers"
+
+	"github.com/sergekovalev/siberia/internal/config"
 )
 
 func main() {
