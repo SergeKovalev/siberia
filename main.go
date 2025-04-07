@@ -94,16 +94,50 @@ func initSheetCache() {
 
 	sheetCacheMux.Lock()
 	defer sheetCacheMux.Unlock()
+
+	// Сначала ищем точное совпадение "Табель"
 	for _, sheet := range sheetsList {
 		sheetCache[sheet.Title] = true
-		if sheet.Title == "Табель" {
+		if strings.EqualFold(sheet.Title, "Табель") {
 			templateSheetID = sheet.SheetId
+			log.Printf("Found template sheet: %s (ID: %d)", sheet.Title, sheet.SheetId)
+			return
 		}
 	}
 
-	if templateSheetID == 0 {
-		log.Fatal("Template sheet 'Табель' not found")
+	// Если точного совпадения нет, ищем любой лист, содержащий "табель" в названии
+	for _, sheet := range sheetsList {
+		if strings.Contains(strings.ToLower(sheet.Title), "табель") {
+			templateSheetID = sheet.SheetId
+			log.Printf("Using sheet '%s' as template (ID: %d)", sheet.Title, sheet.SheetId)
+			return
+		}
 	}
+
+	// Если ничего не найдено
+	var sheetNames []string
+	for _, sheet := range sheetsList {
+		sheetNames = append(sheetNames, sheet.Title)
+	}
+	log.Fatalf("Template sheet containing 'Табель' not found. Available sheets: %v", sheetNames)
+}
+
+func findTemplateSheet(sheets []*sheets.SheetProperties) (int64, error) {
+	// Сначала ищем точное совпадение
+	for _, sheet := range sheets {
+		if strings.EqualFold(sheet.Title, "Табель") {
+			return sheet.SheetId, nil
+		}
+	}
+
+	// Затем ищем по началу названия
+	for _, sheet := range sheets {
+		if strings.HasPrefix(strings.ToLower(sheet.Title), "табель") {
+			return sheet.SheetId, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no template sheet found")
 }
 
 func getMonthSheetName(date time.Time) string {
@@ -130,11 +164,17 @@ func handleMonthSheet(date time.Time) error {
 	sheetCacheMux.Lock()
 	defer sheetCacheMux.Unlock()
 
+	// Двойная проверка на случай, если лист был создан другой горутиной
+	if _, ok := sheetCache[monthSheetName]; ok {
+		return nil
+	}
+
 	if err := CopyAndPrepareSheet(sheetsService, config.SpreadsheetID, templateSheetID, date); err != nil {
-		return err
+		return fmt.Errorf("failed to create month sheet: %v", err)
 	}
 
 	sheetCache[monthSheetName] = true
+	log.Printf("Created new month sheet: %s", monthSheetName)
 	return nil
 }
 
@@ -467,7 +507,7 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	// Создаем лист для месяца если его нет
 	if err := handleMonthSheet(inputDate); err != nil {
 		log.Printf("Error handling month sheet: %v", err)
-		http.Error(w, "Failed to process data", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to prepare timesheet: %v", err), http.StatusInternalServerError)
 		return
 	}
 
