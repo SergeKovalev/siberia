@@ -50,6 +50,7 @@ var (
 	sheetCache      = make(map[string]bool)
 	sheetCacheMux   sync.RWMutex
 	templateSheetID int64
+	lastActiveSheet string // Хранит название последнего активного листа
 )
 
 func main() {
@@ -530,6 +531,67 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// switchSheetVisibility переключает видимость листов: скрывает предыдущий активный и показывает новый
+func switchSheetVisibility(srv *sheets.Service, spreadsheetID string, newSheetName string) error {
+	// Получаем список всех листов
+	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title,hidden))").Do()
+	if err != nil {
+		return fmt.Errorf("failed to get spreadsheet: %v", err)
+	}
+
+	var requests []*sheets.Request
+
+	// Находим текущий активный лист (не скрытый)
+	for _, sheet := range resp.Sheets {
+		if !sheet.Properties.Hidden && sheet.Properties.Title != newSheetName {
+			// Скрываем предыдущий активный лист
+			requests = append(requests, &sheets.Request{
+				UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+					Properties: &sheets.SheetProperties{
+						SheetId: sheet.Properties.SheetId,
+						Hidden:  true,
+					},
+					Fields: "hidden",
+				},
+			})
+			lastActiveSheet = sheet.Properties.Title
+			log.Printf("Hiding previous active sheet: %s", sheet.Properties.Title)
+			break
+		}
+	}
+
+	// Показываем новый лист
+	for _, sheet := range resp.Sheets {
+		if sheet.Properties.Title == newSheetName {
+			requests = append(requests, &sheets.Request{
+				UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+					Properties: &sheets.SheetProperties{
+						SheetId: sheet.Properties.SheetId,
+						Hidden:  false,
+						Index:   0, // Перемещаем в начало
+					},
+					Fields: "hidden,index",
+				},
+			})
+			log.Printf("Showing new active sheet: %s", sheet.Properties.Title)
+			break
+		}
+	}
+
+	if len(requests) > 0 {
+		batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: requests,
+		}
+
+		_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdateRequest).Do()
+		if err != nil {
+			return fmt.Errorf("failed to switch sheet visibility: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // CopyAndPrepareSheet копирует лист, переименовывает его и очищает значения
 func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetID int64, date time.Time) error {
 	// Копируем лист
@@ -626,22 +688,9 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 		return fmt.Errorf("failed to clear values in range %s: %v", clearRange, err)
 	}
 
-	// Активируем новый лист (делаем его видимым)
-	activateRequest := &sheets.Request{
-		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
-			Properties: &sheets.SheetProperties{
-				SheetId: newSheetID,
-				Index:   0, // Перемещаем в начало
-			},
-			Fields: "index",
-		},
-	}
-
-	_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
-		Requests: []*sheets.Request{activateRequest},
-	}).Do()
-	if err != nil {
-		return fmt.Errorf("failed to activate new sheet: %v", err)
+	// Переключаем видимость листов
+	if err := switchSheetVisibility(srv, spreadsheetID, newSheetName); err != nil {
+		return fmt.Errorf("failed to switch sheet visibility: %v", err)
 	}
 
 	log.Printf("Sheet copied, renamed to '%s', cleared and activated successfully. Template sheet hidden.", newSheetName)
