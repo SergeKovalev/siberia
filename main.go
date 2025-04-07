@@ -107,7 +107,13 @@ func initSheetCache() {
 }
 
 func getMonthSheetName(date time.Time) string {
-	return fmt.Sprintf("Табель_%s", date.Format("2006_01"))
+	monthNames := []string{
+		"Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+	}
+	month := monthNames[date.Month()-1]
+	year := date.Year()
+	return fmt.Sprintf("Табель %s %d", month, year)
 }
 
 func handleMonthSheet(date time.Time) error {
@@ -124,7 +130,7 @@ func handleMonthSheet(date time.Time) error {
 	sheetCacheMux.Lock()
 	defer sheetCacheMux.Unlock()
 
-	if err := CopyAndPrepareSheet(sheetsService, config.SpreadsheetID, templateSheetID); err != nil {
+	if err := CopyAndPrepareSheet(sheetsService, config.SpreadsheetID, templateSheetID, date); err != nil {
 		return err
 	}
 
@@ -279,11 +285,12 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 		return "", 0, 0, fmt.Errorf("invalid date format, expected YYYY-MM-DD: %v", err)
 	}
 	dayToFind := inputDate.Day()
+	monthSheetName := getMonthSheetName(inputDate)
 
 	// Get names from column B (rows 4-12)
 	respNames, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
-		"Табель!B4:B12",
+		fmt.Sprintf("%s!B4:B12", monthSheetName),
 	).Context(ctx).Do()
 
 	if err != nil {
@@ -311,7 +318,7 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	// Get dates (day numbers) from row 3 (columns C:AG)
 	respDays, err := sheetsService.Spreadsheets.Values.Get(
 		config.SpreadsheetID,
-		"Табель!C3:AG3",
+		fmt.Sprintf("%s!C3:AG3", monthSheetName),
 	).Context(ctx).Do()
 
 	if err != nil {
@@ -359,12 +366,18 @@ func columnToLetter(col int) string {
 
 // appendTimesheetData добавляет данные в табель учета времени
 func appendTimesheetData(data TimesheetData) error {
+	inputDate, err := time.Parse("2006-01-02", data.Date)
+	if err != nil {
+		return fmt.Errorf("invalid date format: %v", err)
+	}
+
+	monthSheetName := getMonthSheetName(inputDate)
 	colLetter, row, col, err := findTimesheetCell(data)
 	if err != nil {
 		return fmt.Errorf("failed to find cell: %v", err)
 	}
 
-	cell := fmt.Sprintf("Табель!%s%d", colLetter, row)
+	cell := fmt.Sprintf("%s!%s%d", monthSheetName, colLetter, row)
 	log.Printf("Writing to cell %s (row %d, col %d)", cell, row, col)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -496,7 +509,7 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // CopyAndPrepareSheet копирует лист, переименовывает его и очищает значения
-func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetID int64) error {
+func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetID int64, date time.Time) error {
 	// Копируем лист
 	copyRequest := &sheets.CopySheetToAnotherSpreadsheetRequest{
 		DestinationSpreadsheetId: spreadsheetID,
@@ -508,8 +521,7 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 
 	// Переименовываем новый лист
 	newSheetID := copyResponse.SheetId
-	currentDate := time.Now().Format("2006_01") // Форматируем дату как ГГГГ_ММ
-	newSheetName := fmt.Sprintf("Табель_%s", currentDate)
+	newSheetName := getMonthSheetName(date)
 
 	// Проверяем, существует ли лист с таким именем
 	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title))").Do()
@@ -542,8 +554,8 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 		return fmt.Errorf("failed to rename sheet: %v", err)
 	}
 
-	// Очищаем значения в диапазоне A1:ZZ100
-	clearRange := fmt.Sprintf("%s!A1:ZZ100", newSheetName)
+	// Очищаем значения в диапазоне C4:AG17
+	clearRange := fmt.Sprintf("%s!C4:AG17", newSheetName)
 	clearRequest := &sheets.ClearValuesRequest{}
 	_, err = srv.Spreadsheets.Values.Clear(spreadsheetID, clearRange, clearRequest).Do()
 	if err != nil {
