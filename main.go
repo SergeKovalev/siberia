@@ -249,7 +249,13 @@ func findTimesheetCell(data TimesheetData) (string, int, int, error) {
 	}
 
 	if targetRow == 0 {
-		return "", 0, 0, fmt.Errorf("full name '%s' not found in timesheet", data.FullName)
+		availableNames := []string{}
+		for _, row := range respNames.Values {
+			if len(row) > 0 {
+				availableNames = append(availableNames, row[0].(string))
+			}
+		}
+		return "", 0, 0, fmt.Errorf("full name '%s' not found. Available names: %v", data.FullName, availableNames)
 	}
 
 	// Get dates (day numbers) from row 3 (columns C:AG)
@@ -425,4 +431,77 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
+}
+
+// CopyAndPrepareSheet копирует лист, переименовывает его и очищает значения
+func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetID int64) error {
+	// Копируем лист
+	copyRequest := &sheets.CopySheetToAnotherSpreadsheetRequest{
+		DestinationSpreadsheetId: spreadsheetID,
+	}
+	copyResponse, err := srv.Spreadsheets.Sheets.CopyTo(spreadsheetID, sourceSheetID, copyRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to copy sheet: %v", err)
+	}
+
+	// Переименовываем новый лист
+	newSheetID := copyResponse.SheetId
+	currentDate := time.Now().Format("2006_01") // Форматируем дату как ГГГГ_ММ
+	newSheetName := fmt.Sprintf("Табель_%s", currentDate)
+
+	// Проверяем, существует ли лист с таким именем
+	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title))").Do()
+	if err != nil {
+		return fmt.Errorf("failed to get spreadsheet: %v", err)
+	}
+
+	for _, sheet := range resp.Sheets {
+		if sheet.Properties.Title == newSheetName {
+			return fmt.Errorf("sheet with name '%s' already exists", newSheetName)
+		}
+	}
+
+	renameRequest := &sheets.Request{
+		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+			Properties: &sheets.SheetProperties{
+				SheetId: newSheetID,
+				Title:   newSheetName,
+			},
+			Fields: "title",
+		},
+	}
+
+	batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{renameRequest},
+	}
+
+	_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdateRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to rename sheet: %v", err)
+	}
+
+	// Очищаем значения в диапазоне A1:ZZ100
+	clearRange := fmt.Sprintf("%s!A1:ZZ100", newSheetName)
+	clearRequest := &sheets.ClearValuesRequest{}
+	_, err = srv.Spreadsheets.Values.Clear(spreadsheetID, clearRange, clearRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to clear values in range %s: %v", clearRange, err)
+	}
+
+	log.Printf("Sheet copied, renamed to '%s', and cleared successfully.", newSheetName)
+	return nil
+}
+
+// ListSheets выводит список листов с их ID
+func ListSheets(srv *sheets.Service, spreadsheetID string) ([]*sheets.SheetProperties, error) {
+	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title))").Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get spreadsheet: %v", err)
+	}
+
+	var sheetProperties []*sheets.SheetProperties
+	for _, sheet := range resp.Sheets {
+		sheetProperties = append(sheetProperties, sheet.Properties)
+	}
+	return sheetProperties, nil
 }
