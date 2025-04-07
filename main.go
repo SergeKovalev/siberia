@@ -437,16 +437,21 @@ func ensureSheetVisible(srv *sheets.Service, spreadsheetID string, sheetName str
 	}
 
 	var (
-		currentActiveSheetID int64
-		targetSheetID        int64
-		requests             []*sheets.Request
+		currentActiveTimesheetID int64
+		targetSheetID            int64
+		requests                 []*sheets.Request
 	)
 
-	// Находим текущий активный лист и нужный нам лист
+	// Находим текущий активный табельный лист (исключая лист "Выпуск") и нужный нам лист
 	for _, sheet := range resp.Sheets {
+		// Пропускаем лист "Выпуск" - он никогда не должен скрываться
+		if sheet.Properties.Title == config.ProductionSheet {
+			continue
+		}
+
 		if !sheet.Properties.Hidden && sheet.Properties.Title != sheetName {
-			currentActiveSheetID = sheet.Properties.SheetId
-			log.Printf("Found current active sheet: %s (ID: %d)", sheet.Properties.Title, sheet.Properties.SheetId)
+			currentActiveTimesheetID = sheet.Properties.SheetId
+			log.Printf("Found current active timesheet: %s (ID: %d)", sheet.Properties.Title, sheet.Properties.SheetId)
 		}
 		if sheet.Properties.Title == sheetName {
 			targetSheetID = sheet.Properties.SheetId
@@ -459,32 +464,32 @@ func ensureSheetVisible(srv *sheets.Service, spreadsheetID string, sheetName str
 		return fmt.Errorf("target sheet '%s' not found", sheetName)
 	}
 
-	// Если текущий активный лист существует и это не наш целевой лист
-	if currentActiveSheetID != 0 && currentActiveSheetID != targetSheetID {
+	// Если текущий активный табельный лист существует и это не наш целевой лист
+	if currentActiveTimesheetID != 0 && currentActiveTimesheetID != targetSheetID {
 		requests = append(requests, &sheets.Request{
 			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
 				Properties: &sheets.SheetProperties{
-					SheetId: currentActiveSheetID,
+					SheetId: currentActiveTimesheetID,
 					Hidden:  true,
 				},
 				Fields: "hidden",
 			},
 		})
-		log.Printf("Preparing to hide sheet ID: %d", currentActiveSheetID)
+		log.Printf("Preparing to hide timesheet ID: %d", currentActiveTimesheetID)
 	}
 
-	// Делаем целевой лист видимым и перемещаем его в начало
+	// Делаем целевой лист видимым и перемещаем его в начало (после листа "Выпуск")
 	requests = append(requests, &sheets.Request{
 		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
 			Properties: &sheets.SheetProperties{
 				SheetId: targetSheetID,
 				Hidden:  false,
-				Index:   0,
+				Index:   1, // Помещаем после листа "Выпуск" (который должен быть первым)
 			},
 			Fields: "hidden,index",
 		},
 	})
-	log.Printf("Preparing to show and move to front sheet ID: %d", targetSheetID)
+	log.Printf("Preparing to show and move to position 1 sheet ID: %d", targetSheetID)
 
 	if len(requests) > 0 {
 		batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
