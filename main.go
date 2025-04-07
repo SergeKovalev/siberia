@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2/google"
@@ -44,11 +45,13 @@ type TimesheetData struct {
 }
 
 var (
-	config        Config
-	sheetsService *sheets.Service
+	config          Config
+	sheetsService   *sheets.Service
+	sheetCache      = make(map[string]bool)
+	sheetCacheMux   sync.RWMutex
+	templateSheetID int64
 )
 
-// main - точка входа в приложение
 func main() {
 	log.SetOutput(os.Stdout)
 	log.Println("Starting application...")
@@ -64,6 +67,7 @@ func main() {
 		log.Fatalf("Access verification failed: %v", err)
 	}
 
+	initSheetCache()
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
 	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
@@ -80,6 +84,52 @@ func main() {
 
 	log.Printf("Server running on port %s", config.Port)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func initSheetCache() {
+	sheetsList, err := ListSheets(sheetsService, config.SpreadsheetID)
+	if err != nil {
+		log.Fatalf("Failed to list sheets: %v", err)
+	}
+
+	sheetCacheMux.Lock()
+	defer sheetCacheMux.Unlock()
+	for _, sheet := range sheetsList {
+		sheetCache[sheet.Title] = true
+		if sheet.Title == "Табель" {
+			templateSheetID = sheet.SheetId
+		}
+	}
+
+	if templateSheetID == 0 {
+		log.Fatal("Template sheet 'Табель' not found")
+	}
+}
+
+func getMonthSheetName(date time.Time) string {
+	return fmt.Sprintf("Табель_%s", date.Format("2006_01"))
+}
+
+func handleMonthSheet(date time.Time) error {
+	monthSheetName := getMonthSheetName(date)
+
+	sheetCacheMux.RLock()
+	exists := sheetCache[monthSheetName]
+	sheetCacheMux.RUnlock()
+
+	if exists {
+		return nil
+	}
+
+	sheetCacheMux.Lock()
+	defer sheetCacheMux.Unlock()
+
+	if err := CopyAndPrepareSheet(sheetsService, config.SpreadsheetID, templateSheetID); err != nil {
+		return err
+	}
+
+	sheetCache[monthSheetName] = true
+	return nil
 }
 
 // verifyAccess проверяет доступ к таблице Google Sheets
@@ -389,11 +439,23 @@ func timesheetHandler(w http.ResponseWriter, r *http.Request) {
 	if data.Date == "" {
 		data.Date = time.Now().Format("2006-01-02")
 	} else {
-		// Validate date format
 		if _, err := time.Parse("2006-01-02", data.Date); err != nil {
 			http.Error(w, "Invalid date format, expected YYYY-MM-DD", http.StatusBadRequest)
 			return
 		}
+	}
+
+	inputDate, err := time.Parse("2006-01-02", data.Date)
+	if err != nil {
+		http.Error(w, "Invalid date format", http.StatusBadRequest)
+		return
+	}
+
+	// Создаем лист для месяца если его нет
+	if err := handleMonthSheet(inputDate); err != nil {
+		log.Printf("Error handling month sheet: %v", err)
+		http.Error(w, "Failed to process data", http.StatusInternalServerError)
+		return
 	}
 
 	if _, err := strconv.ParseFloat(data.Hours, 64); err != nil {
