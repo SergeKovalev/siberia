@@ -395,6 +395,12 @@ func appendTimesheetData(data TimesheetData) error {
 	}
 
 	monthSheetName := getMonthSheetName(inputDate)
+
+	// Перед записью данных убедимся, что лист видим
+	if err := ensureSheetVisible(sheetsService, config.SpreadsheetID, monthSheetName); err != nil {
+		return fmt.Errorf("failed to make sheet visible: %v", err)
+	}
+
 	colLetter, row, col, err := findTimesheetCell(data)
 	if err != nil {
 		return fmt.Errorf("failed to find cell: %v", err)
@@ -419,6 +425,81 @@ func appendTimesheetData(data TimesheetData) error {
 	}
 
 	log.Printf("Successfully wrote hours to %s", cell)
+	return nil
+}
+
+// ensureSheetVisible делает указанный лист видимым и скрывает предыдущий активный
+func ensureSheetVisible(srv *sheets.Service, spreadsheetID string, sheetName string) error {
+	// Получаем список всех листов с информацией о видимости
+	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title,hidden))").Do()
+	if err != nil {
+		return fmt.Errorf("failed to get spreadsheet: %v", err)
+	}
+
+	var (
+		currentActiveSheetID int64
+		targetSheetID        int64
+		requests             []*sheets.Request
+	)
+
+	// Находим текущий активный лист и нужный нам лист
+	for _, sheet := range resp.Sheets {
+		if !sheet.Properties.Hidden && sheet.Properties.Title != sheetName {
+			currentActiveSheetID = sheet.Properties.SheetId
+			log.Printf("Found current active sheet: %s (ID: %d)", sheet.Properties.Title, sheet.Properties.SheetId)
+		}
+		if sheet.Properties.Title == sheetName {
+			targetSheetID = sheet.Properties.SheetId
+			log.Printf("Found target sheet: %s (ID: %d, hidden: %v)",
+				sheet.Properties.Title, sheet.Properties.SheetId, sheet.Properties.Hidden)
+		}
+	}
+
+	if targetSheetID == 0 {
+		return fmt.Errorf("target sheet '%s' not found", sheetName)
+	}
+
+	// Если текущий активный лист существует и это не наш целевой лист
+	if currentActiveSheetID != 0 && currentActiveSheetID != targetSheetID {
+		requests = append(requests, &sheets.Request{
+			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+				Properties: &sheets.SheetProperties{
+					SheetId: currentActiveSheetID,
+					Hidden:  true,
+				},
+				Fields: "hidden",
+			},
+		})
+		log.Printf("Preparing to hide sheet ID: %d", currentActiveSheetID)
+	}
+
+	// Делаем целевой лист видимым и перемещаем его в начало
+	requests = append(requests, &sheets.Request{
+		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+			Properties: &sheets.SheetProperties{
+				SheetId: targetSheetID,
+				Hidden:  false,
+				Index:   0,
+			},
+			Fields: "hidden,index",
+		},
+	})
+	log.Printf("Preparing to show and move to front sheet ID: %d", targetSheetID)
+
+	if len(requests) > 0 {
+		batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: requests,
+		}
+
+		_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdateRequest).Do()
+		if err != nil {
+			return fmt.Errorf("failed to switch sheet visibility: %v", err)
+		}
+		log.Printf("Successfully updated sheet visibility for %s", sheetName)
+	} else {
+		log.Printf("No visibility changes needed for %s", sheetName)
+	}
+
 	return nil
 }
 
@@ -689,7 +770,7 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 	}
 
 	// Переключаем видимость листов
-	if err := switchSheetVisibility(srv, spreadsheetID, newSheetName); err != nil {
+	if err := ensureSheetVisible(srv, spreadsheetID, newSheetName); err != nil {
 		return fmt.Errorf("failed to switch sheet visibility: %v", err)
 	}
 
