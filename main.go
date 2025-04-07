@@ -122,24 +122,6 @@ func initSheetCache() {
 	log.Fatalf("Template sheet containing 'Табель' not found. Available sheets: %v", sheetNames)
 }
 
-func findTemplateSheet(sheets []*sheets.SheetProperties) (int64, error) {
-	// Сначала ищем точное совпадение
-	for _, sheet := range sheets {
-		if strings.EqualFold(sheet.Title, "Табель") {
-			return sheet.SheetId, nil
-		}
-	}
-
-	// Затем ищем по началу названия
-	for _, sheet := range sheets {
-		if strings.HasPrefix(strings.ToLower(sheet.Title), "табель") {
-			return sheet.SheetId, nil
-		}
-	}
-
-	return 0, fmt.Errorf("no template sheet found")
-}
-
 func getMonthSheetName(date time.Time) string {
 	monthNames := []string{
 		"Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -575,23 +557,65 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 		}
 	}
 
-	renameRequest := &sheets.Request{
-		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
-			Properties: &sheets.SheetProperties{
-				SheetId: newSheetID,
-				Title:   newSheetName,
+	// Создаем запросы для:
+	// 1. Переименования нового листа
+	// 2. Скрытия исходного листа-шаблона
+	// 3. Добавления заголовка
+	requests := []*sheets.Request{
+		{
+			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+				Properties: &sheets.SheetProperties{
+					SheetId: newSheetID,
+					Title:   newSheetName,
+				},
+				Fields: "title",
 			},
-			Fields: "title",
+		},
+		{
+			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+				Properties: &sheets.SheetProperties{
+					SheetId: sourceSheetID,
+					Hidden:  true,
+				},
+				Fields: "hidden",
+			},
 		},
 	}
 
+	// Добавляем запрос для установки заголовка
+	monthNames := []string{
+		"Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+	}
+	month := monthNames[date.Month()-1]
+	year := date.Year()
+	title := fmt.Sprintf("Табель учета рабочего времени за %s %d год", month, year)
+
+	requests = append(requests, &sheets.Request{
+		RepeatCell: &sheets.RepeatCellRequest{
+			Range: &sheets.GridRange{
+				SheetId:          newSheetID,
+				StartRowIndex:    0,
+				EndRowIndex:      1,
+				StartColumnIndex: 0,
+				EndColumnIndex:   26, // Z column
+			},
+			Cell: &sheets.CellData{
+				UserEnteredValue: &sheets.ExtendedValue{
+					StringValue: &title,
+				},
+			},
+			Fields: "userEnteredValue",
+		},
+	})
+
 	batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
-		Requests: []*sheets.Request{renameRequest},
+		Requests: requests,
 	}
 
 	_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdateRequest).Do()
 	if err != nil {
-		return fmt.Errorf("failed to rename sheet: %v", err)
+		return fmt.Errorf("failed to rename sheet and hide template: %v", err)
 	}
 
 	// Очищаем значения в диапазоне C4:AG17
@@ -602,7 +626,25 @@ func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetI
 		return fmt.Errorf("failed to clear values in range %s: %v", clearRange, err)
 	}
 
-	log.Printf("Sheet copied, renamed to '%s', and cleared successfully.", newSheetName)
+	// Активируем новый лист (делаем его видимым)
+	activateRequest := &sheets.Request{
+		UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+			Properties: &sheets.SheetProperties{
+				SheetId: newSheetID,
+				Index:   0, // Перемещаем в начало
+			},
+			Fields: "index",
+		},
+	}
+
+	_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{activateRequest},
+	}).Do()
+	if err != nil {
+		return fmt.Errorf("failed to activate new sheet: %v", err)
+	}
+
+	log.Printf("Sheet copied, renamed to '%s', cleared and activated successfully. Template sheet hidden.", newSheetName)
 	return nil
 }
 
