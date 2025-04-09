@@ -259,7 +259,15 @@ func appendProductionData(data ProductionData) error {
 		existingData = resp.Values
 	}
 
-	log.Printf("Existing data before sorting: %+v", existingData)
+	log.Printf("Existing data before processing: %+v", existingData)
+
+	// Удаляем пустые строки
+	var cleanedData [][]interface{}
+	for _, row := range existingData {
+		if len(row) > 0 && strings.TrimSpace(fmt.Sprintf("%v", row[0])) != "" {
+			cleanedData = append(cleanedData, row)
+		}
+	}
 
 	// Добавляем новую запись в массив данных
 	newRow := []interface{}{
@@ -271,79 +279,62 @@ func appendProductionData(data ProductionData) error {
 		data.GoodParts,
 		data.Notes,
 	}
-	existingData = append(existingData, newRow)
+	cleanedData = append(cleanedData, newRow)
 
 	// Сортируем данные по дате
-	sort.Slice(existingData, func(i, j int) bool {
-		if len(existingData[i]) == 0 || len(existingData[j]) == 0 {
-			log.Printf("Skipping empty row during sorting: i=%d, j=%d", i, j)
+	sort.Slice(cleanedData, func(i, j int) bool {
+		dateStrI := fmt.Sprintf("%v", cleanedData[i][0])
+		dateStrJ := fmt.Sprintf("%v", cleanedData[j][0])
+
+		// Преобразуем формат даты DD.MM.YYYY -> YYYY-MM-DD
+		dateI, errI := time.Parse("2006-01-02", convertDateFormat(dateStrI))
+		dateJ, errJ := time.Parse("2006-01-02", convertDateFormat(dateStrJ))
+
+		if errI != nil || errJ != nil {
+			log.Printf("Error parsing dates: i=%d (%v), j=%d (%v)", i, dateStrI, j, dateStrJ)
 			return false
 		}
 
-		// Проверяем, что в первой колонке есть значение
-		dateStrI := fmt.Sprintf("%v", existingData[i][0])
-		dateStrJ := fmt.Sprintf("%v", existingData[j][0])
-
-		if strings.TrimSpace(dateStrI) == "" || strings.TrimSpace(dateStrJ) == "" {
-			log.Printf("Skipping row with empty date: i=%d (%v), j=%d (%v)", i, dateStrI, j, dateStrJ)
-			return false
-		}
-
-		// Парсим даты
-		dateI, errI := time.Parse("2006-01-02", dateStrI)
-		dateJ, errJ := time.Parse("2006-01-02", dateStrJ)
-
-		if errI != nil {
-			log.Printf("Error parsing date for row i=%d: %v (%v)", i, dateStrI, errI)
-			return false
-		}
-		if errJ != nil {
-			log.Printf("Error parsing date for row j=%d: %v (%v)", j, dateStrJ, errJ)
-			return false
-		}
-
-		log.Printf("Comparing dates: i=%d (%v), j=%d (%v)", i, dateI, j, dateJ)
 		return dateI.Before(dateJ)
 	})
 
-	log.Printf("Data after sorting: %+v", existingData)
-
-	// Добавляем пустую строку между записями разных дат
-	var sortedData [][]interface{}
+	// Добавляем пустые строки между разными датами
+	var finalData [][]interface{}
 	var prevDate string
-	for _, row := range existingData {
-		if len(row) == 0 || len(row[0].(string)) == 0 {
-			log.Printf("Skipping empty row: %+v", row)
-			continue
-		}
-
+	for _, row := range cleanedData {
 		currentDate := fmt.Sprintf("%v", row[0])
 		if prevDate != "" && currentDate != prevDate {
-			log.Printf("Adding empty row between dates: %s and %s", prevDate, currentDate)
-			sortedData = append(sortedData, []interface{}{})
+			finalData = append(finalData, []any{}) // Пустая строка
 		}
-
-		sortedData = append(sortedData, row)
+		finalData = append(finalData, row)
 		prevDate = currentDate
 	}
 
-	log.Printf("Data after adding empty rows: %+v", sortedData)
+	log.Printf("Final data after processing: %+v", finalData)
 
 	// Обновляем данные на листе "Выпуск"
 	rangeData := fmt.Sprintf("%s!A1:G", config.ProductionSheet)
 	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
 		rangeData,
-		&sheets.ValueRange{Values: sortedData},
+		&sheets.ValueRange{Values: finalData},
 	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 
 	if err != nil {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	log.Printf("Final data to update in sheet: %+v", sortedData)
 	log.Printf("Production data successfully updated and sorted.")
 	return nil
+}
+
+// convertDateFormat преобразует дату из формата DD.MM.YYYY в формат YYYY-MM-DD
+func convertDateFormat(dateStr string) string {
+	parts := strings.Split(dateStr, ".")
+	if len(parts) == 3 {
+		return fmt.Sprintf("%s-%s-%s", parts[2], parts[1], parts[0])
+	}
+	return dateStr // Возвращаем исходную строку, если формат некорректен
 }
 
 // findTimesheetCell находит ячейку в табеле учета времени для указанной даты и сотрудника
