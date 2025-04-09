@@ -329,23 +329,6 @@ func appendProductionData(data ProductionData) error {
 	return nil
 }
 
-// getSheetID возвращает ID листа по его названию
-func getSheetID(sheetName string) int64 {
-	resp, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Fields("sheets(properties(sheetId,title))").Do()
-	if err != nil {
-		log.Fatalf("Failed to get spreadsheet: %v", err)
-	}
-
-	for _, sheet := range resp.Sheets {
-		if sheet.Properties.Title == sheetName {
-			return sheet.Properties.SheetId
-		}
-	}
-
-	log.Fatalf("Sheet with name '%s' not found", sheetName)
-	return 0
-}
-
 // convertDateFormat преобразует дату из формата DD.MM.YYYY в формат YYYY-MM-DD
 func convertDateFormat(dateStr string) string {
 	parts := strings.Split(dateStr, ".")
