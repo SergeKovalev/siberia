@@ -295,11 +295,6 @@
                     <select id="production-operation" required>
                         <option value="" disabled selected>Загрузка...</option>
                     </select>
-                    <input id="custom-operation" 
-                           style="display: none;"
-                           placeholder="Введите название операции" 
-                           class="custom-input"
-                           required>
                 </div>
                 
                 <div class="form-group">
@@ -541,8 +536,6 @@
                 document.getElementById('production-totalParts').value = '';
                 document.getElementById('production-defective').value = '';
                 document.getElementById('production-notes').value = '';
-                document.getElementById('custom-employee').style.display = 'none';
-                document.getElementById('custom-operation').style.display = 'none';
             } catch (error) {
                 // Обработка ошибок
                 showMessage("Ошибка: " + error.message, true);

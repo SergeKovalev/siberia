@@ -292,7 +292,7 @@ func appendProductionData(data ProductionData) error {
 
 	// Добавляем пустую строку между записями разных дат
 	var sortedData [][]interface{}
-	var prevDate, prevFullName string
+	var prevDate string
 	for _, row := range existingData {
 		// Проверяем, что строка содержит дату
 		if len(row) == 0 || len(row[0].(string)) == 0 {
@@ -300,21 +300,14 @@ func appendProductionData(data ProductionData) error {
 		}
 
 		currentDate := fmt.Sprintf("%v", row[0])
-		currentFullName := fmt.Sprintf("%v", row[1])
 
 		// Добавляем пустую строку, если дата изменилась
 		if prevDate != "" && currentDate != prevDate {
 			sortedData = append(sortedData, []interface{}{})
 		}
 
-		// Убираем фамилию, если она совпадает с предыдущей для той же даты
-		if currentDate == prevDate && currentFullName == prevFullName {
-			row[1] = "" // Очищаем поле фамилии
-		}
-
 		sortedData = append(sortedData, row)
 		prevDate = currentDate
-		prevFullName = currentFullName
 	}
 
 	// Обновляем данные на листе "Выпуск"
