@@ -261,6 +261,13 @@ func appendProductionData(data ProductionData) error {
 
 	log.Printf("Existing data before processing: %+v", existingData)
 
+	// Сохраняем шапку таблицы
+	var header []interface{}
+	if len(existingData) > 0 {
+		header = existingData[0]
+		existingData = existingData[1:] // Убираем шапку из данных для обработки
+	}
+
 	// Удаляем пустые строки
 	var cleanedData [][]interface{}
 	for _, row := range existingData {
@@ -304,11 +311,14 @@ func appendProductionData(data ProductionData) error {
 	for _, row := range cleanedData {
 		currentDate := fmt.Sprintf("%v", row[0])
 		if prevDate != "" && currentDate != prevDate {
-			finalData = append(finalData, []any{}) // Пустая строка
+			finalData = append(finalData, []interface{}{}) // Пустая строка
 		}
 		finalData = append(finalData, row)
 		prevDate = currentDate
 	}
+
+	// Добавляем шапку обратно
+	finalData = append([][]interface{}{header}, finalData...)
 
 	log.Printf("Final data after processing: %+v", finalData)
 
@@ -324,8 +334,56 @@ func appendProductionData(data ProductionData) error {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	log.Printf("Production data successfully updated and sorted.")
+	// Применяем форматирование (Arial 12, текст по центру)
+	formatRequest := &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{
+			{
+				RepeatCell: &sheets.RepeatCellRequest{
+					Range: &sheets.GridRange{
+						SheetId:          getSheetID(config.ProductionSheet),
+						StartRowIndex:    1, // Пропускаем шапку
+						StartColumnIndex: 0,
+						EndColumnIndex:   7, // Столбцы A:G
+					},
+					Cell: &sheets.CellData{
+						UserEnteredFormat: &sheets.CellFormat{
+							HorizontalAlignment: "CENTER",
+							TextFormat: &sheets.TextFormat{
+								FontFamily: "Arial",
+								FontSize:   12,
+							},
+						},
+					},
+					Fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+				},
+			},
+		},
+	}
+
+	_, err = sheetsService.Spreadsheets.BatchUpdate(config.SpreadsheetID, formatRequest).Do()
+	if err != nil {
+		return fmt.Errorf("failed to apply formatting: %v", err)
+	}
+
+	log.Printf("Production data successfully updated, sorted, and formatted.")
 	return nil
+}
+
+// getSheetID возвращает ID листа по его названию
+func getSheetID(sheetName string) int64 {
+	resp, err := sheetsService.Spreadsheets.Get(config.SpreadsheetID).Fields("sheets(properties(sheetId,title))").Do()
+	if err != nil {
+		log.Fatalf("Failed to get spreadsheet: %v", err)
+	}
+
+	for _, sheet := range resp.Sheets {
+		if sheet.Properties.Title == sheetName {
+			return sheet.Properties.SheetId
+		}
+	}
+
+	log.Fatalf("Sheet with name '%s' not found", sheetName)
+	return 0
 }
 
 // convertDateFormat преобразует дату из формата DD.MM.YYYY в формат YYYY-MM-DD
