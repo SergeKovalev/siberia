@@ -259,6 +259,8 @@ func appendProductionData(data ProductionData) error {
 		existingData = resp.Values
 	}
 
+	log.Printf("Existing data before sorting: %+v", existingData)
+
 	// Добавляем новую запись в массив данных
 	newRow := []interface{}{
 		data.Date,
@@ -273,42 +275,45 @@ func appendProductionData(data ProductionData) error {
 
 	// Сортируем данные по дате
 	sort.Slice(existingData, func(i, j int) bool {
-		// Проверяем, что первая колонка не пуста
 		if len(existingData[i]) == 0 || len(existingData[j]) == 0 {
+			log.Printf("Skipping empty row during sorting: i=%d, j=%d", i, j)
 			return false
 		}
 
-		// Преобразуем первую колонку (дата) в формат времени
 		dateI, errI := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[i][0]))
 		dateJ, errJ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[j][0]))
 
-		// Если дата некорректна, считаем, что строки равны
 		if errI != nil || errJ != nil {
+			log.Printf("Error parsing dates: i=%d (%v), j=%d (%v)", i, existingData[i][0], j, existingData[j][0])
 			return false
 		}
 
+		log.Printf("Comparing dates: i=%d (%v), j=%d (%v)", i, dateI, j, dateJ)
 		return dateI.Before(dateJ)
 	})
+
+	log.Printf("Data after sorting: %+v", existingData)
 
 	// Добавляем пустую строку между записями разных дат
 	var sortedData [][]interface{}
 	var prevDate string
 	for _, row := range existingData {
-		// Проверяем, что строка содержит дату
 		if len(row) == 0 || len(row[0].(string)) == 0 {
+			log.Printf("Skipping empty row: %+v", row)
 			continue
 		}
 
 		currentDate := fmt.Sprintf("%v", row[0])
-
-		// Добавляем пустую строку, если дата изменилась
 		if prevDate != "" && currentDate != prevDate {
+			log.Printf("Adding empty row between dates: %s and %s", prevDate, currentDate)
 			sortedData = append(sortedData, []interface{}{})
 		}
 
 		sortedData = append(sortedData, row)
 		prevDate = currentDate
 	}
+
+	log.Printf("Data after adding empty rows: %+v", sortedData)
 
 	// Обновляем данные на листе "Выпуск"
 	rangeData := fmt.Sprintf("%s!A1:G", config.ProductionSheet)
@@ -322,6 +327,7 @@ func appendProductionData(data ProductionData) error {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
+	log.Printf("Final data to update in sheet: %+v", sortedData)
 	log.Printf("Production data successfully updated and sorted.")
 	return nil
 }
