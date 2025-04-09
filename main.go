@@ -280,11 +280,25 @@ func appendProductionData(data ProductionData) error {
 			return false
 		}
 
-		dateI, errI := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[i][0]))
-		dateJ, errJ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[j][0]))
+		// Проверяем, что в первой колонке есть значение
+		dateStrI := fmt.Sprintf("%v", existingData[i][0])
+		dateStrJ := fmt.Sprintf("%v", existingData[j][0])
 
-		if errI != nil || errJ != nil {
-			log.Printf("Error parsing dates: i=%d (%v), j=%d (%v)", i, existingData[i][0], j, existingData[j][0])
+		if strings.TrimSpace(dateStrI) == "" || strings.TrimSpace(dateStrJ) == "" {
+			log.Printf("Skipping row with empty date: i=%d (%v), j=%d (%v)", i, dateStrI, j, dateStrJ)
+			return false
+		}
+
+		// Парсим даты
+		dateI, errI := time.Parse("2006-01-02", dateStrI)
+		dateJ, errJ := time.Parse("2006-01-02", dateStrJ)
+
+		if errI != nil {
+			log.Printf("Error parsing date for row i=%d: %v (%v)", i, dateStrI, errI)
+			return false
+		}
+		if errJ != nil {
+			log.Printf("Error parsing date for row j=%d: %v (%v)", j, dateStrJ, errJ)
 			return false
 		}
 
