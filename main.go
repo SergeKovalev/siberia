@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -268,11 +267,26 @@ func appendProductionData(data ProductionData) error {
 		existingData = existingData[1:] // Убираем шапку из данных для обработки
 	}
 
-	// Удаляем пустые строки
-	var cleanedData [][]interface{}
-	for _, row := range existingData {
-		if len(row) > 0 && strings.TrimSpace(fmt.Sprintf("%v", row[0])) != "" {
-			cleanedData = append(cleanedData, row)
+	// Проверяем последнюю дату в таблице
+	var lastDate string
+	if len(existingData) > 0 {
+		lastRow := existingData[len(existingData)-1]
+		if len(lastRow) > 0 {
+			lastDate = fmt.Sprintf("%v", lastRow[0])
+		}
+	}
+
+	// Преобразуем вводимую дату и последнюю дату в таблице в формат YYYY-MM-DD
+	inputDate, err := time.Parse("2006-01-02", convertDateFormat(data.Date))
+	if err != nil {
+		return fmt.Errorf("invalid input date format: %v", err)
+	}
+
+	var lastDateParsed time.Time
+	if lastDate != "" {
+		lastDateParsed, err = time.Parse("2006-01-02", convertDateFormat(lastDate))
+		if err != nil {
+			return fmt.Errorf("invalid last date format in sheet: %v", err)
 		}
 	}
 
@@ -286,39 +300,16 @@ func appendProductionData(data ProductionData) error {
 		data.GoodParts,
 		data.Notes,
 	}
-	cleanedData = append(cleanedData, newRow)
 
-	// Сортируем данные по дате
-	sort.Slice(cleanedData, func(i, j int) bool {
-		dateStrI := fmt.Sprintf("%v", cleanedData[i][0])
-		dateStrJ := fmt.Sprintf("%v", cleanedData[j][0])
-
-		// Преобразуем формат даты DD.MM.YYYY -> YYYY-MM-DD
-		dateI, errI := time.Parse("2006-01-02", convertDateFormat(dateStrI))
-		dateJ, errJ := time.Parse("2006-01-02", convertDateFormat(dateStrJ))
-
-		if errI != nil || errJ != nil {
-			log.Printf("Error parsing dates: i=%d (%v), j=%d (%v)", i, dateStrI, j, dateStrJ)
-			return false
-		}
-
-		return dateI.Before(dateJ)
-	})
-
-	// Добавляем пустые строки между разными датами
-	var finalData [][]interface{}
-	var prevDate string
-	for _, row := range cleanedData {
-		currentDate := fmt.Sprintf("%v", row[0])
-		if prevDate != "" && currentDate != prevDate {
-			finalData = append(finalData, []interface{}{}) // Пустая строка
-		}
-		finalData = append(finalData, row)
-		prevDate = currentDate
+	// Если вводимая дата больше последней даты, добавляем пустую строку перед новой записью
+	if lastDate != "" && inputDate.After(lastDateParsed) {
+		existingData = append(existingData, []interface{}{}) // Пустая строка
 	}
 
+	existingData = append(existingData, newRow)
+
 	// Добавляем шапку обратно
-	finalData = append([][]interface{}{header}, finalData...)
+	finalData := append([][]interface{}{header}, existingData...)
 
 	log.Printf("Final data after processing: %+v", finalData)
 
@@ -334,38 +325,7 @@ func appendProductionData(data ProductionData) error {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	// Применяем форматирование (Arial 12, текст по центру)
-	formatRequest := &sheets.BatchUpdateSpreadsheetRequest{
-		Requests: []*sheets.Request{
-			{
-				RepeatCell: &sheets.RepeatCellRequest{
-					Range: &sheets.GridRange{
-						SheetId:          getSheetID(config.ProductionSheet),
-						StartRowIndex:    1, // Пропускаем шапку
-						StartColumnIndex: 0,
-						EndColumnIndex:   7, // Столбцы A:G
-					},
-					Cell: &sheets.CellData{
-						UserEnteredFormat: &sheets.CellFormat{
-							HorizontalAlignment: "CENTER",
-							TextFormat: &sheets.TextFormat{
-								FontFamily: "Arial",
-								FontSize:   12,
-							},
-						},
-					},
-					Fields: "userEnteredFormat(horizontalAlignment,textFormat)",
-				},
-			},
-		},
-	}
-
-	_, err = sheetsService.Spreadsheets.BatchUpdate(config.SpreadsheetID, formatRequest).Do()
-	if err != nil {
-		return fmt.Errorf("failed to apply formatting: %v", err)
-	}
-
-	log.Printf("Production data successfully updated, sorted, and formatted.")
+	log.Printf("Production data successfully updated.")
 	return nil
 }
 
