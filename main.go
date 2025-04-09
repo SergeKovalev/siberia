@@ -267,49 +267,58 @@ func appendProductionData(data ProductionData) error {
 		existingData = existingData[1:] // Убираем шапку из данных для обработки
 	}
 
-	// Проверяем последнюю дату в таблице
-	var lastDate string
-	if len(existingData) > 0 {
-		lastRow := existingData[len(existingData)-1]
-		if len(lastRow) > 0 {
-			lastDate = fmt.Sprintf("%v", lastRow[0])
+	// Преобразуем вводимую дату в формат DD.MM.YYYY
+	inputDate := data.Date
+
+	// Найти первую пустую строку после указанной даты
+	var updatedData [][]interface{}
+	dateFound := false
+	for _, row := range existingData {
+		// Проверяем, является ли текущая строка датой
+		if len(row) > 0 {
+			rowDate := fmt.Sprintf("%v", row[0])
+			if rowDate == inputDate {
+				dateFound = true
+			}
 		}
-	}
 
-	// Преобразуем вводимую дату и последнюю дату в таблице в формат YYYY-MM-DD
-	inputDate, err := time.Parse("2006-01-02", convertDateFormat(data.Date))
-	if err != nil {
-		return fmt.Errorf("invalid input date format: %v", err)
-	}
-
-	var lastDateParsed time.Time
-	if lastDate != "" {
-		lastDateParsed, err = time.Parse("2006-01-02", convertDateFormat(lastDate))
-		if err != nil {
-			return fmt.Errorf("invalid last date format in sheet: %v", err)
+		// Если дата найдена и строка пустая, добавляем новую запись
+		if dateFound && (len(row) == 0 || strings.TrimSpace(fmt.Sprintf("%v", row[0])) == "") {
+			updatedData = append(updatedData, row) // Добавляем пустую строку
+			updatedData = append(updatedData, []interface{}{
+				data.Date,
+				data.FullName,
+				data.PartAndOperation,
+				data.TotalParts,
+				data.Defective,
+				data.GoodParts,
+				data.Notes,
+			})
+			dateFound = false // Останавливаем поиск
+			continue
 		}
+
+		updatedData = append(updatedData, row)
 	}
 
-	// Добавляем новую запись в массив данных
-	newRow := []interface{}{
-		data.Date,
-		data.FullName,
-		data.PartAndOperation,
-		data.TotalParts,
-		data.Defective,
-		data.GoodParts,
-		data.Notes,
+	// Если указанной даты нет, добавляем данные после последней записи с пустой строкой
+	if !dateFound {
+		if len(updatedData) > 0 && len(updatedData[len(updatedData)-1]) > 0 {
+			updatedData = append(updatedData, []interface{}{}) // Добавляем пустую строку
+		}
+		updatedData = append(updatedData, []interface{}{
+			data.Date,
+			data.FullName,
+			data.PartAndOperation,
+			data.TotalParts,
+			data.Defective,
+			data.GoodParts,
+			data.Notes,
+		})
 	}
-
-	// Если вводимая дата больше последней даты, добавляем пустую строку перед новой записью
-	if lastDate != "" && inputDate.After(lastDateParsed) {
-		existingData = append(existingData, []interface{}{}) // Пустая строка
-	}
-
-	existingData = append(existingData, newRow)
 
 	// Добавляем шапку обратно
-	finalData := append([][]interface{}{header}, existingData...)
+	finalData := append([][]interface{}{header}, updatedData...)
 
 	log.Printf("Final data after processing: %+v", finalData)
 
@@ -327,15 +336,6 @@ func appendProductionData(data ProductionData) error {
 
 	log.Printf("Production data successfully updated.")
 	return nil
-}
-
-// convertDateFormat преобразует дату из формата DD.MM.YYYY в формат YYYY-MM-DD
-func convertDateFormat(dateStr string) string {
-	parts := strings.Split(dateStr, ".")
-	if len(parts) == 3 {
-		return fmt.Sprintf("%s-%s-%s", parts[2], parts[1], parts[0])
-	}
-	return dateStr // Возвращаем исходную строку, если формат некорректен
 }
 
 // findTimesheetCell находит ячейку в табеле учета времени для указанной даты и сотрудника
