@@ -617,7 +617,7 @@
             }
         }
 
-        // Функция для загрузки данных в выпадающие меню
+        // Функция для загрузки данных в выпадающие меню "ФИО сотрудника"
         async function loadDropdownData() {
             try {
                 const response = await fetch('/get-dropdown-data');
@@ -625,7 +625,17 @@
 
                 const data = await response.json();
 
-                // Заполняем выпадающее меню для формы табеля работы
+                // Заполняем выпадающее меню для формы "Учет деталей"
+                const productionDropdown = document.getElementById('production-fullName');
+                productionDropdown.innerHTML = '<option value="" disabled selected>Выберите сотрудника</option>';
+                data.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = item;
+                    productionDropdown.appendChild(option);
+                });
+
+                // Заполняем выпадающее меню для формы "Табель работы"
                 const timesheetDropdown = document.getElementById('timesheet-fullName');
                 timesheetDropdown.innerHTML = '<option value="" disabled selected>Выберите сотрудника</option>';
                 data.forEach(item => {
@@ -636,7 +646,7 @@
                 });
             } catch (error) {
                 console.error('Error loading dropdown data:', error);
-                alert('Не удалось загрузить данные для выпадающего меню.');
+                alert('Не удалось загрузить данные для выпадающего меню "ФИО сотрудника".');
             }
         }
 
@@ -673,8 +683,8 @@
 
         // Загрузка данных при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            loadDropdownData();
-            loadOperationsData();
+            loadDropdownData(); // Загружаем данные для выпадающих меню
+            loadOperationsData(); // Загружаем данные для меню "Название детали и операции"
         });
     </script>
 </body>
