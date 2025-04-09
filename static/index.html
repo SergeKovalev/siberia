@@ -669,12 +669,6 @@
                     option.textContent = item;
                     operationDropdown.appendChild(option);
                 });
-
-                // Добавление опции "Другая"
-                const customOption = document.createElement('option');
-                customOption.value = 'Другая';
-                customOption.textContent = 'Другая (указать)';
-                operationDropdown.appendChild(customOption);
             } catch (error) {
                 console.error('Error loading operations data:', error);
                 alert('Не удалось загрузить данные для выпадающего меню "Название детали и операции".');
