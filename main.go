@@ -238,30 +238,6 @@ func loadCredentials() ([]byte, error) {
 	return nil, fmt.Errorf("no credentials provided")
 }
 
-// findLastNonEmptyRow находит последнюю непустую строку в указанном листе
-func findLastNonEmptyRow(sheetName string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	resp, err := sheetsService.Spreadsheets.Values.Get(
-		config.SpreadsheetID,
-		fmt.Sprintf("%s!A:A", sheetName),
-	).Context(ctx).Do()
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to get sheet data: %v", err)
-	}
-
-	lastNonEmpty := 0
-	for i, row := range resp.Values {
-		if len(row) > 0 && strings.TrimSpace(row[0].(string)) != "" {
-			lastNonEmpty = i + 1
-		}
-	}
-
-	return lastNonEmpty, nil
-}
-
 // appendProductionData добавляет данные о производстве в таблицу
 func appendProductionData(data ProductionData) error {
 	// Получаем все данные с листа "Выпуск"
@@ -297,23 +273,48 @@ func appendProductionData(data ProductionData) error {
 
 	// Сортируем данные по дате
 	sort.Slice(existingData, func(i, j int) bool {
+		// Проверяем, что первая колонка не пуста
+		if len(existingData[i]) == 0 || len(existingData[j]) == 0 {
+			return false
+		}
+
 		// Преобразуем первую колонку (дата) в формат времени
-		dateI, _ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[i][0]))
-		dateJ, _ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[j][0]))
+		dateI, errI := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[i][0]))
+		dateJ, errJ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[j][0]))
+
+		// Если дата некорректна, считаем, что строки равны
+		if errI != nil || errJ != nil {
+			return false
+		}
+
 		return dateI.Before(dateJ)
 	})
 
 	// Добавляем пустую строку между записями разных дат
 	var sortedData [][]interface{}
-	var prevDate string
+	var prevDate, prevFullName string
 	for _, row := range existingData {
+		// Проверяем, что строка содержит дату
+		if len(row) == 0 || len(row[0].(string)) == 0 {
+			continue
+		}
+
 		currentDate := fmt.Sprintf("%v", row[0])
+		currentFullName := fmt.Sprintf("%v", row[1])
+
+		// Добавляем пустую строку, если дата изменилась
 		if prevDate != "" && currentDate != prevDate {
-			// Добавляем пустую строку
 			sortedData = append(sortedData, []interface{}{})
 		}
+
+		// Убираем фамилию, если она совпадает с предыдущей для той же даты
+		if currentDate == prevDate && currentFullName == prevFullName {
+			row[1] = "" // Очищаем поле фамилии
+		}
+
 		sortedData = append(sortedData, row)
 		prevDate = currentDate
+		prevFullName = currentFullName
 	}
 
 	// Обновляем данные на листе "Выпуск"
