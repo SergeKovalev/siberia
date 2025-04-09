@@ -50,7 +50,7 @@ var (
 	sheetCache      = make(map[string]bool)
 	sheetCacheMux   sync.RWMutex
 	templateSheetID int64
-	lastActiveSheet string // Хранит название последнего активного листа
+	// Removed unused variable lastActiveSheet
 )
 
 func main() {
@@ -72,6 +72,8 @@ func main() {
 	http.HandleFunc("/submit-production", enableCORS(productionHandler))
 	http.HandleFunc("/submit-timesheet", enableCORS(timesheetHandler))
 	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/get-dropdown-data", enableCORS(getDropdownDataHandler))
+	http.HandleFunc("/get-operations-data", enableCORS(getOperationsDataHandler))
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/", fs)
@@ -617,67 +619,6 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// switchSheetVisibility переключает видимость листов: скрывает предыдущий активный и показывает новый
-func switchSheetVisibility(srv *sheets.Service, spreadsheetID string, newSheetName string) error {
-	// Получаем список всех листов
-	resp, err := srv.Spreadsheets.Get(spreadsheetID).Fields("sheets(properties(sheetId,title,hidden))").Do()
-	if err != nil {
-		return fmt.Errorf("failed to get spreadsheet: %v", err)
-	}
-
-	var requests []*sheets.Request
-
-	// Находим текущий активный лист (не скрытый)
-	for _, sheet := range resp.Sheets {
-		if !sheet.Properties.Hidden && sheet.Properties.Title != newSheetName {
-			// Скрываем предыдущий активный лист
-			requests = append(requests, &sheets.Request{
-				UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
-					Properties: &sheets.SheetProperties{
-						SheetId: sheet.Properties.SheetId,
-						Hidden:  true,
-					},
-					Fields: "hidden",
-				},
-			})
-			lastActiveSheet = sheet.Properties.Title
-			log.Printf("Hiding previous active sheet: %s", sheet.Properties.Title)
-			break
-		}
-	}
-
-	// Показываем новый лист
-	for _, sheet := range resp.Sheets {
-		if sheet.Properties.Title == newSheetName {
-			requests = append(requests, &sheets.Request{
-				UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
-					Properties: &sheets.SheetProperties{
-						SheetId: sheet.Properties.SheetId,
-						Hidden:  false,
-						Index:   0, // Перемещаем в начало
-					},
-					Fields: "hidden,index",
-				},
-			})
-			log.Printf("Showing new active sheet: %s", sheet.Properties.Title)
-			break
-		}
-	}
-
-	if len(requests) > 0 {
-		batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
-			Requests: requests,
-		}
-
-		_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, batchUpdateRequest).Do()
-		if err != nil {
-			return fmt.Errorf("failed to switch sheet visibility: %v", err)
-		}
-	}
-
-	return nil
-}
-
 // CopyAndPrepareSheet копирует лист, переименовывает его и очищает значения
 func CopyAndPrepareSheet(srv *sheets.Service, spreadsheetID string, sourceSheetID int64, date time.Time) error {
 	// Копируем лист
@@ -795,4 +736,68 @@ func ListSheets(srv *sheets.Service, spreadsheetID string) ([]*sheets.SheetPrope
 		sheetProperties = append(sheetProperties, sheet.Properties)
 	}
 	return sheetProperties, nil
+}
+
+// getDropdownDataHandler возвращает данные для выпадающего меню
+func getDropdownDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Укажите диапазон, откуда брать данные для выпадающего меню
+	rangeData := "Работники!A1:A" // Данные берутся с листа "Работники", начиная со второй строки столбца A
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	resp, err := sheetsService.Spreadsheets.Values.Get(config.SpreadsheetID, rangeData).Context(ctx).Do()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get dropdown data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Преобразуем данные в массив строк
+	var dropdownData []string
+	for _, row := range resp.Values {
+		if len(row) > 0 {
+			dropdownData = append(dropdownData, fmt.Sprintf("%v", row[0]))
+		}
+	}
+
+	// Возвращаем данные в формате JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dropdownData)
+}
+
+// getOperationsDataHandler возвращает данные для выпадающего меню "Название детали и операции"
+func getOperationsDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Укажите диапазон, откуда брать данные для выпадающего меню
+	rangeData := "Норма выпуска!A1:A" // Данные берутся с листа "Норма выпуска", начиная с первой строки столбца A
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	resp, err := sheetsService.Spreadsheets.Values.Get(config.SpreadsheetID, rangeData).Context(ctx).Do()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get operations data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Преобразуем данные в массив строк
+	var operationsData []string
+	for _, row := range resp.Values {
+		if len(row) > 0 {
+			operationsData = append(operationsData, fmt.Sprintf("%v", row[0]))
+		}
+	}
+
+	// Возвращаем данные в формате JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(operationsData)
 }

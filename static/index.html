@@ -286,54 +286,14 @@
                 <div class="form-group">
                     <label>ФИО сотрудника:</label>
                     <select id="production-fullName" required>
-                        <option value="" disabled selected>Выберите сотрудника</option>
-                        <option value="Афанасьев">Афанасьев</option>
-                        <option value="Бурлаков">Бурлаков</option>
-                        <option value="Горемыкин">Горемыкин</option>
-                        <option value="Маслов">Маслов</option>
-                        <option value="Овсиенко">Овсиенко</option>
-                        <option value="Серягин">Серягин</option>
-                        <option value="Полушин">Полушин</option>
-                        <option value="Отрадных">Отрадных</option>
-                        <option value="Соболев">Соболев</option>
-                        <option value="Другой">Другой (указать)</option>
+                        <option value="" disabled selected>Загрузка...</option>
                     </select>
-                    <input id="custom-employee" 
-                           style="display: none;"
-                           placeholder="Введите ФИО" 
-                           class="custom-input"
-                           required>
                 </div>
                 
                 <div class="form-group">
                     <label>Название детали и операции:</label>
                     <select id="production-operation" required>
-                        <option value="" disabled selected>Выберите операцию</option>
-                        <option value="Гайка Сибирь">Гайка Сибирь</option>
-                        <option value="Крышка Сибирь 1оп">Крышка Сибирь 1оп</option>
-                        <option value="Крышка Сибирь 2оп">Крышка Сибирь 2оп</option>
-                        <option value="Крышка Сибирь 3оп">Крышка Сибирь 3оп</option>
-                        <option value="Основание Сибирь 1-2оп">Основание Сибирь 1-2оп</option>
-                        <option value="Сопло Сибирь">Сопло Сибирь</option>
-                        <option value="Трубка Сибирь">Трубка Сибирь</option>
-                        <option value="Втулка Сибирь (Алюм.)">Втулка Сибирь (Алюм.)</option>
-                        <option value="Втулка Сибирь (Латунь)">Втулка Сибирь (Латунь)</option>
-                        <option value="Болт Зорька">Болт Зорька</option>
-                        <option value="Винт регулировочный М6">Винт регулировочный М6</option>
-                        <option value="Винт регулировочный М8">Винт регулировочный М8</option>
-                        <option value="Гайка МС">Гайка МС</option>
-                        <option value="Крышка МС 1оп">Крышка МС 1оп</option>
-                        <option value="Крышка МС 2оп">Крышка МС 2оп</option>
-                        <option value="Крышка МС 3оп">Крышка МС 3оп</option>
-                        <option value="Крышка МС 4оп">Крышка МС 4оп</option>
-                        <option value="Основание МС 1оп">Основание МС 1оп</option>
-                        <option value="Основание МС 2оп">Основание МС 2оп</option>
-                        <option value="Основание МС 3-4оп">Основание МС 3-4оп</option>
-                        <option value="Сопло МС">Сопло МС</option>
-                        <option value="Наконечник ДВИ">Наконечник ДВИ</option>
-                        <option value="Закрутка Основание МС">Закрутка Основание МС</option>
-                        <option value="Гайка МС доработка">Гайка МС доработка</option>
-                        <option value="Другая">Другая (указать)</option>
+                        <option value="" disabled selected>Загрузка...</option>
                     </select>
                     <input id="custom-operation" 
                            style="display: none;"
@@ -372,16 +332,7 @@
                 <div class="form-group">
                     <label>ФИО сотрудника:</label>
                     <select id="timesheet-fullName" required>
-                        <option value="" disabled selected>Выберите сотрудника</option>
-                        <option value="Афанасьев">Афанасьев</option>
-                        <option value="Бурлаков">Бурлаков</option>
-                        <option value="Горемыкин">Горемыкин</option>
-                        <option value="Маслов">Маслов</option>
-                        <option value="Овсиенко">Овсиенко</option>
-                        <option value="Серягин">Серягин</option>
-                        <option value="Полушин">Полушин</option>
-                        <option value="Отрадных">Отрадных</option>
-                        <option value="Соболев">Соболев</option>
+                        <option value="" disabled selected>Загрузка...</option>
                     </select>
                 </div>
                 
@@ -665,6 +616,66 @@
                 console.error('Error:', error);
             }
         }
+
+        // Функция для загрузки данных в выпадающие меню
+        async function loadDropdownData() {
+            try {
+                const response = await fetch('/get-dropdown-data');
+                if (!response.ok) throw new Error('Failed to fetch dropdown data');
+
+                const data = await response.json();
+
+                // Заполняем выпадающее меню для формы табеля работы
+                const timesheetDropdown = document.getElementById('timesheet-fullName');
+                timesheetDropdown.innerHTML = '<option value="" disabled selected>Выберите сотрудника</option>';
+                data.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = item;
+                    timesheetDropdown.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading dropdown data:', error);
+                alert('Не удалось загрузить данные для выпадающего меню.');
+            }
+        }
+
+        // Функция для загрузки данных в выпадающее меню "Название детали и операции"
+        async function loadOperationsData() {
+            try {
+                const response = await fetch('/get-operations-data');
+                if (!response.ok) throw new Error('Failed to fetch operations data');
+
+                const data = await response.json();
+                const operationDropdown = document.getElementById('production-operation');
+
+                // Очистка текущих опций
+                operationDropdown.innerHTML = '<option value="" disabled selected>Выберите операцию</option>';
+
+                // Добавление новых опций
+                data.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = item;
+                    operationDropdown.appendChild(option);
+                });
+
+                // Добавление опции "Другая"
+                const customOption = document.createElement('option');
+                customOption.value = 'Другая';
+                customOption.textContent = 'Другая (указать)';
+                operationDropdown.appendChild(customOption);
+            } catch (error) {
+                console.error('Error loading operations data:', error);
+                alert('Не удалось загрузить данные для выпадающего меню "Название детали и операции".');
+            }
+        }
+
+        // Загрузка данных при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDropdownData();
+            loadOperationsData();
+        });
     </script>
 </body>
 </html>
