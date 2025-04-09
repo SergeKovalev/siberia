@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -263,39 +264,71 @@ func findLastNonEmptyRow(sheetName string) (int, error) {
 
 // appendProductionData добавляет данные о производстве в таблицу
 func appendProductionData(data ProductionData) error {
-	lastRow, err := findLastNonEmptyRow(config.ProductionSheet)
-	if err != nil {
-		return fmt.Errorf("failed to find last row: %v", err)
-	}
-
-	targetRow := lastRow + 1
-	values := [][]interface{}{
-		{
-			data.Date,
-			data.FullName,
-			data.PartAndOperation,
-			data.TotalParts,
-			data.Defective,
-			data.GoodParts,
-			data.Notes,
-		},
-	}
-
+	// Получаем все данные с листа "Выпуск"
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	rangeData := fmt.Sprintf("%s!A%d:G%d", config.ProductionSheet, targetRow, targetRow)
+	resp, err := sheetsService.Spreadsheets.Values.Get(
+		config.SpreadsheetID,
+		fmt.Sprintf("%s!A:G", config.ProductionSheet),
+	).Context(ctx).Do()
+
+	if err != nil {
+		return fmt.Errorf("failed to get sheet data: %v", err)
+	}
+
+	// Преобразуем существующие данные в массив строк
+	var existingData [][]interface{}
+	if resp.Values != nil {
+		existingData = resp.Values
+	}
+
+	// Добавляем новую запись в массив данных
+	newRow := []interface{}{
+		data.Date,
+		data.FullName,
+		data.PartAndOperation,
+		data.TotalParts,
+		data.Defective,
+		data.GoodParts,
+		data.Notes,
+	}
+	existingData = append(existingData, newRow)
+
+	// Сортируем данные по дате
+	sort.Slice(existingData, func(i, j int) bool {
+		// Преобразуем первую колонку (дата) в формат времени
+		dateI, _ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[i][0]))
+		dateJ, _ := time.Parse("2006-01-02", fmt.Sprintf("%v", existingData[j][0]))
+		return dateI.Before(dateJ)
+	})
+
+	// Добавляем пустую строку между записями разных дат
+	var sortedData [][]interface{}
+	var prevDate string
+	for _, row := range existingData {
+		currentDate := fmt.Sprintf("%v", row[0])
+		if prevDate != "" && currentDate != prevDate {
+			// Добавляем пустую строку
+			sortedData = append(sortedData, []interface{}{})
+		}
+		sortedData = append(sortedData, row)
+		prevDate = currentDate
+	}
+
+	// Обновляем данные на листе "Выпуск"
+	rangeData := fmt.Sprintf("%s!A1:G", config.ProductionSheet)
 	_, err = sheetsService.Spreadsheets.Values.Update(
 		config.SpreadsheetID,
 		rangeData,
-		&sheets.ValueRange{Values: values},
+		&sheets.ValueRange{Values: sortedData},
 	).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 
 	if err != nil {
 		return fmt.Errorf("failed to update sheet: %v", err)
 	}
 
-	log.Printf("Production data written to row %d", targetRow)
+	log.Printf("Production data successfully updated and sorted.")
 	return nil
 }
 
